@@ -28,7 +28,7 @@ app.use("/documents", express.static(path.join(__dirname, "public/documents")));
 // Enable CORS for all routes
 app.use(
   cors({
-    origin: ["http://localhost:3001", "http://example.com"], // Multiple origins
+    origin: ["http://localhost:3000", "https://httaxsolutions.onrender.com"], // Multiple origins
     methods: ["GET", "POST", "PUT", "DELETE"], // Allowable methods
     allowedHeaders: ["Content-Type", "Authorization"], // Allowable headers
     credentials: true, // If you need to support credentials
