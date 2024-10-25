@@ -3,10 +3,10 @@ const mysql = require("mysql2/promise");
 require("dotenv").config();
 
 const pool = mysql.createPool({
-  host: 'localhost',
-  user: 'root',
-  password: '',
-  database: 'httax',
+  host: 'www.httaxsolutions.com',
+  user: 'gacciajz_gaccadm',
+  password: 'gaccqaz123',
+  database: 'gacciajz_httax',
 });
 
 module.exports = pool;
