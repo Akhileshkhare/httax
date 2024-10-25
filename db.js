@@ -7,6 +7,25 @@ const pool = mysql.createPool({
   user: 'gacciajz_gaccadm',
   password: 'gaccqaz123',
   database: 'gacciajz_httaxdb',
+  port: 3306 // Make sure to specify the port if different
+});
+
+// Test the connection
+pool.getConnection((err, connection) => {
+  if (err) {
+    console.error('Error connecting to the database:', err);
+  } else {
+    console.log('Connection to the database was successful!');
+    // Run a simple test query
+    connection.query('SELECT 1 + 1 AS solution', (error, results) => {
+      connection.release(); // Release the connection back to the pool
+      if (error) {
+        console.error('Error executing query:', error);
+      } else {
+        console.log('Test query result:', results[0].solution); // Should output "2"
+      }
+    });
+  }
 });
 
 module.exports = pool;
