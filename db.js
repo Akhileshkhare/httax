@@ -7,8 +7,9 @@ const pool = mysql.createPool({
   user: 'gacciajz_gaccadm',
   password: 'gaccqaz123',
   database: 'gacciajz_httaxdb',
-  port: 3306 // Make sure to specify the port if different
-});
+  port: 3306, // specify port if different
+  connectionLimit: 10, // optional: set connection pool limit
+  });
 
 // Test the connection
 pool.getConnection((err, connection) => {
