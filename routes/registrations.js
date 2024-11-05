@@ -191,7 +191,7 @@ router.post("/", async (req, res) => {
       from: "HTTaxSolutions <akhileshkhare.work@example.com>",
       to: email,
       subject: "Please verify your HTTaxSolutions account",
-      text: `Hi ${first_name} ${last_name},\n\nPlease click the link below to verify your email address and activate your account. This link will remain active for 24 hrs.\n\nhttp://localhost:3001/verify/${verificationCode}\n\nBest Regards,\n\nHTTaxSolutions`,
+      text: `Hi ${first_name} ${last_name},\n\nPlease click the link below to verify your email address and activate your account. This link will remain active for 24 hrs.\n\nhttps://httaxsolutions.onrender.com/verify/${verificationCode}\n\nBest Regards,\n\nHTTaxSolutions`,
     };
     
 
@@ -449,7 +449,7 @@ router.post('/forgot-password', async (req, res) => {
     // Save token to user record (for example in a password_reset_token column)
     await pool.query('UPDATE htax_registrations SET temp_forget	 = ? WHERE email = ?', [token, email]);
 
-    const resetLink = `http://localhost:3001/reset-password/${token}`;
+    const resetLink = `https://httaxsolutions.onrender.com/reset-password/${token}`;
 
     // const transporter = nodemailer.createTransport({
     //   service: 'Gmail',
