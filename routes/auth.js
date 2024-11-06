@@ -11,32 +11,32 @@ router.post("/login", async (req, res) => {
   const { email, password } = req.body;
 
   try {
-    const [rows] = await pool.query(
-      "SELECT * FROM htax_registrations WHERE email = ?",
-      [email]
-    );
-    console.log('Get Registration : ',rows)
-
+    const [rows] = await pool.query("SELECT * FROM htax_registrations WHERE email = ?", [email]);
+    console.log('Get Registration:', rows); // Check what rows is returned
+  
     if (rows.length === 0) {
-      return res.status(401).json({ error: "Invalid email2 or password." });
+      console.error("Email not found");
+      return res.status(401).json({ error: "Invalid email or password." });
     }
-
+  
     const user = rows[0];
-
     const passwordMatch = await bcrypt.compare(password, user.password);
-    console.log('Password Match : ',passwordMatch)
-
+  
+    console.log('Password Match:', passwordMatch); // Ensure it's true/false
+  
     if (!passwordMatch) {
-      return res.status(401).json({ error: "Invalid email2 or password." });
+      console.error("Password does not match");
+      return res.status(401).json({ error: "Invalid email or password." });
     }
-
-    // Generate JWT
+  
     const token = jwt.sign(
       { reg_id: user.reg_id, email: user.email, operator_id: user.operator_id },
-      process.env.JWT_SECRET,
+      process?.env?.JWT_SECRET,
       { expiresIn: "1h" }
     );
-
+  
+    console.log("Generated JWT token:", token);
+  
     res.json({
       token,
       user: {
@@ -47,8 +47,10 @@ router.post("/login", async (req, res) => {
       },
     });
   } catch (error) {
+    console.error("Error in /login route:", error);
     res.status(500).json({ error: "Internal server error." });
   }
+  
 });
 
 module.exports = router;
