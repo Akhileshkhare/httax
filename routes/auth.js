@@ -15,6 +15,7 @@ router.post("/login", async (req, res) => {
       "SELECT * FROM htax_registrations WHERE email = ?",
       [email]
     );
+    console.log('Get Registration : ',rows)
 
     if (rows.length === 0) {
       return res.status(401).json({ error: "Invalid email2 or password." });
