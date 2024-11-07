@@ -59,5 +59,34 @@ router.post("/login", async (req, res) => {
   }
   
 });
+// Token validation endpoint
+router.get("/validate-token", (req, res) => {
+  // Extract token from the Authorization header
+  const token = req.header("Authorization")?.split(" ")[1];
+
+  if (!token) {
+    return res.status(401).json({ message: "Access denied. No token provided." });
+  }
+
+  // Verify the token
+  jwt.verify(token, process.env.JWT_SECRET, (error, decoded) => {
+    if (error) {
+      if (error instanceof jwt.TokenExpiredError) {
+        // Handle token expiration
+        return res.status(401).json({ message: "Token has expired." });
+      } else if (error instanceof jwt.JsonWebTokenError) {
+        // Handle invalid token
+        return res.status(400).json({ message: "Invalid token." });
+      } else {
+        // Handle other verification errors
+        return res.status(400).json({ message: "Authentication error." });
+      }
+    }
+
+    // Token is valid
+    res.status(200).json({ message: "Token is valid.", user: decoded });
+  });
+});
+
 
 module.exports = router;

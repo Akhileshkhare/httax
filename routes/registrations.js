@@ -61,6 +61,8 @@ function getClientIp(req) {
 
   return null;  // Return null if IP is not found
 }
+
+
 // Route to handle email verification link
 router.post('/verify/:token', async (req, res) => {
   const { token } = req.params;
