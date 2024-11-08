@@ -64,7 +64,7 @@ console.log('email,password : ',email,password)
       { expiresIn: "1h" }
     );
 
-    res.json({ token, id: operator.operator_id, username: operator.username, email: operator.operator_email  });
+    res.json({ token, user:{id: operator.operator_id, username: operator.username, email: operator.operator_email ,user_type:'Operator'} });
   } catch (err) {
     console.error("Login error:", err);
     res.status(500).json({ message: "Internal server error." });
