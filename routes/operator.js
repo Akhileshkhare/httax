@@ -178,7 +178,7 @@ router.get("/assigned-users/:reg_id/documents", authenticateToken, async (req, r
 // Download Single Document
 router.get("/documents/download/:document_name", authenticateToken, (req, res) => {
   const { document_name } = req.params;
-  const filePath = path.join(__dirname, "../public/documents/", document_name);
+  const filePath = path.join(__dirname, "../uploads/documents/", document_name);
 
   fs.access(filePath, fs.constants.F_OK, (err) => {
     if (err) {
