@@ -5,6 +5,7 @@ const pool = require("../db");
 const authenticateToken = require("../auth");
 const crypto = require("crypto");
 const nodemailer = require("nodemailer");
+const { sendMail } = require("./mailService");
 
 // Create a transporter
 const transporter = nodemailer.createTransport({
@@ -162,7 +163,7 @@ router.post("/", async (req, res) => {
                 email, password, phone_no, image, wife_name,
                 no_of_children, reg_date, reg_time, ip_address,
                 email_verification, status, temp_forget, expire_temp_forget_link, document_status,email_verification_token 
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, UNIX_TIMESTAMP(), UNIX_TIMESTAMP(), ?, ?, ?, ?, ?, ?,?)`,
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW(), ?, ?, ?, ?, ?, ?,?)`,
       [
         0,
         first_name,
@@ -193,7 +194,7 @@ router.post("/", async (req, res) => {
       from: "HTTaxSolutions <akhileshkhare.work@example.com>",
       to: email,
       subject: "Please verify your HTTaxSolutions account",
-      text: `Hi ${first_name} ${last_name},\n\nPlease click the link below to verify your email address and activate your account. This link will remain active for 24 hrs.\n\nhttps://httaxsolutions.onrender.com/verify/${verificationCode}\n\nBest Regards,\n\nHTTaxSolutions`,
+      text: `Hi ${first_name} ${last_name},\n\nPlease click the link below to verify your email address and activate your account. This link will remain active for 24 hrs.\n\n${process.env.NODE_ENV==='production'?process.env.BASE_URL_PROD:process.env.BASE_URL_DEV}/verify/${verificationCode}\n\nBest Regards,\n\nHTTaxSolutions`,
     };
     
 
@@ -357,14 +358,43 @@ router.put("/:reg_id/operator/:operator_id", authenticateToken, async (req, res)
       "UPDATE htax_registrations SET operator_id = ? WHERE reg_id = ?",
       [operator_id, reg_id]
     );
+ // Fetch operator details from the htax_operator table
+ const [operatorResult] = await pool.query(
+  "SELECT operator_email, operator_name FROM htax_operator WHERE operator_id = ?",
+  [operator_id]
+);
 
-    //  // Logic for sending emails based on assigned operator
-    // if (user.operator_id) {
-    //   // If an operator is assigned, send an email to the operator
-    //   await sendEmail(operatorEmail, "User Assigned", `You have been assigned the user ${user.first_name} ${user.last_name}.`);
-    // }
-    
-    res.json({ message: "Operator updated successfully!" });
+if (operatorResult.length === 0) {
+  return res.status(404).json({ message: "Operator not found" });
+}
+
+const operatorEmail = operatorResult[0].operator_email;
+const operatorName = operatorResult[0].operator_name;
+
+// Fetch user details for the notification message
+const [userResult] = await pool.query(
+  "SELECT first_name, last_name FROM htax_registrations WHERE reg_id = ?",
+  [reg_id]
+);
+
+if (userResult.length === 0) {
+  return res.status(404).json({ message: "User not found" });
+}
+
+const userName = `${userResult[0].first_name} ${userResult[0].last_name}`;
+
+// Send email notification to the assigned operator
+const subject = "New User Assigned to You";
+const text = `Hello ${operatorName},
+
+You have been assigned a new user: ${userName} (Registration ID: ${reg_id}). Please check the platform for further details.
+
+Best regards,
+Your Team`;
+
+await sendMail(operatorEmail, subject, text);
+
+res.json({ message: "Operator updated and notification sent successfully!" });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: "Internal server error." });
@@ -388,19 +418,76 @@ router.put("/update-status/:reg_id/:newStatus", authenticateToken, async (req, r
       [newStatus, reg_id]
     );
 
-//  // Logic for sending emails based on new status
-//  const user = currentUser[0];
-//  const operatorEmail = user.operator_email; // Assuming operator_email is a field in your table
-//  const managerEmail = user.manager_email; // Assuming manager_email is a field in your table
+// Fetch user details for sending email notifications
+const [userResult] = await pool.query(
+  "SELECT first_name, last_name, email, operator_id FROM htax_registrations WHERE reg_id = ?",
+  [reg_id]
+);
 
-//  if (newStatus === "SubmittedForReview") {
-//    await sendEmail(operatorEmail, "User Submitted For Review", `The user ${user.first_name} ${user.last_name} has been submitted for review.`);
-//  } else if (newStatus === "ManagerReview") {
-//    await sendEmail(managerEmail, "User Under Manager Review", `The user ${user.first_name} ${user.last_name} is now under manager review.`);
-//  }
+if (userResult.length === 0) {
+  return res.status(404).json({ message: "User not found" });
+}
 
+const userEmail = userResult[0].email;
+const userName = `${userResult[0].first_name} ${userResult[0].last_name}`;
+const operatorId = userResult[0].operator_id;
 
-    res.json({ message: "User status updated successfully!" });
+// Define messages based on new status
+if (newStatus === "pending") {
+  // Notify user when status changes to "pending"
+  const subject = "Status Update: Pending";
+  const text = `Dear ${userName},
+
+Your account status has been changed to "Pending". Please log in to review your information.
+
+Best regards,
+Your Team`;
+
+  await sendMail(userEmail, subject, text);
+}
+
+// Notify admin when status changes to "ManagerReview"
+if (newStatus === "ManagerReview") {
+  const [adminResult] = await pool.query(
+    "SELECT email FROM htax_admin_login WHERE admin_type = 'Admin'"
+  );
+
+  if (adminResult.length > 0) {
+    const adminEmail = adminResult[0].email;
+    const subject = "Status Update: Manager Review";
+    const text = `Admin,
+
+The user ${userName} (Registration ID: ${reg_id}) is now under Manager Review. Please review their account as soon as possible.
+
+Thank you,
+Your Team`;
+
+    await sendMail(adminEmail, subject, text);
+  }
+}
+
+// Notify the operator if status changes to "SubmittedForReview" and an operator is assigned
+if (newStatus === "SubmittedForReview" && operatorId !== 0) {
+  const [operatorResult] = await pool.query(
+    "SELECT operator_email FROM htax_operator WHERE operator_id = ?",
+    [operatorId]
+  );
+
+  if (operatorResult.length > 0) {
+    const operatorEmail = operatorResult[0].operator_email;
+    const subject = "Status Update: Submitted For Review";
+    const text = `Dear Operator,
+
+      The user ${userName} (Registration ID: ${reg_id}) has been submitted for your review. Please check the platform for further details.
+
+      Thank you,
+      Your Team`;
+
+          await sendMail(operatorEmail, subject, text);
+        }
+      }
+
+      res.json({ message: "User status updated successfully and notifications sent!" });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: "Internal server error." });
@@ -451,7 +538,7 @@ router.post('/forgot-password', async (req, res) => {
     // Save token to user record (for example in a password_reset_token column)
     await pool.query('UPDATE htax_registrations SET temp_forget	 = ? WHERE email = ?', [token, email]);
 
-    const resetLink = `https://httaxsolutions.onrender.com/reset-password/${token}`;
+    const resetLink = `${process.env.NODE_ENV==='production'?process.env.BASE_URL_PROD:process.env.BASE_URL_DEV}/reset-password/${token}`;
 
     // const transporter = nodemailer.createTransport({
     //   service: 'Gmail',

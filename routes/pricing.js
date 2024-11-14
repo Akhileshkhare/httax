@@ -23,7 +23,7 @@ router.post("/", authenticateToken, async (req, res) => {
 });
 
 // Get all pricing entries
-router.get("/", authenticateToken, async (req, res) => {
+router.get("/",  async (req, res) => {
   try {
     const [pricing] = await pool.query("SELECT * FROM htax_pricing");
     res.json(pricing);

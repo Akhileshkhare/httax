@@ -56,12 +56,12 @@ router.post("/login", async (req, res) => {
     }
 
     const token = jwt.sign(
-      { id: admin.id, username: admin.username, email: admin.email },
+      { id: admin.id, username: admin.username, email: admin.email,user_type: 3 },
       process.env.JWT_SECRET,
       { expiresIn: "1h" }
     );
 
-    res.json({ token,user: { id: admin.id, username: admin.username, email: admin.email ,user_type:'Admin'} });
+    res.json({ token,user: { id: admin.id, username: admin.username, email: admin.email ,user_type:3} });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: "Internal server error." });
@@ -439,7 +439,7 @@ router.post("/upload-documents", authenticateToken, async (req, res) => {
   const year = new Date().getFullYear();
   
   // Define paths
-  const docsDir = path.join(__dirname, "../public/documents", year.toString(), `${username}_${adminId}`);
+  const docsDir = path.join(__dirname, "../uploads/documents", year.toString(), `${username}_${adminId}`);
   
   // Create directories if they don't exist
   fs.mkdirSync(docsDir, { recursive: true });
@@ -466,4 +466,40 @@ router.post("/upload-documents", authenticateToken, async (req, res) => {
     res.json({ message: "Documents uploaded successfully." });
   });
 });
+
+// Example usage of sendMailToMultiple
+
+// const { sendMail, sendMailToMultiple } = require('./services/mailService');
+
+// const notifyMultipleUsers = async (recipientEmails, username, reg_id, titles, files) => {
+//   const subject = `New Document(s) Uploaded by ${username}`;
+//   const text = `
+//     Hello,
+
+//     The following document(s) have been uploaded by ${username} (reg_id: ${reg_id}):
+    
+//     ${titles.map((title, index) => `- ${title} (${files[index].originalname})`).join('\n')}
+    
+//     Please review them at your earliest convenience.
+
+//     Thank you.
+//   `;
+
+//   await sendMailToMultiple(recipientEmails, subject, text);
+// };
+
+// router.post('/notify-users', async (req, res) => {
+//   const recipientEmails = ['user1@example.com', 'user2@example.com']; // Array of email addresses
+//   const username = 'John Doe';
+//   const reg_id = 123;
+//   const titles = ['Document Title 1', 'Document Title 2'];
+//   const files = [{ originalname: 'file1.pdf' }, { originalname: 'file2.pdf' }];
+
+//   try {
+//     await notifyMultipleUsers(recipientEmails, username, reg_id, titles, files);
+//     res.status(200).json({ message: 'Notifications sent successfully' });
+//   } catch (error) {
+//     res.status(500).json({ message: 'Failed to send notifications' });
+//   }
+// });
 module.exports = router;

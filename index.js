@@ -7,6 +7,8 @@ const adminLoginRoutes = require("./routes/adminLogin");
 const operatorRoutes = require("./routes/operator");
 const operatorAssignUsersRoutes = require("./routes/operatorAssignUsers");
 const pricingRoutes = require("./routes/pricing");
+const notificationRoutes = require("./routes/notifications");
+
 const taxDocumentsRoutes = require("./routes/taxDocuments");
 const taxDocumentsPrepareRoutes = require("./routes/taxDocumentsPrepare");
 const taxDocumentsPreparePaymentDetailsRoutes = require("./routes/taxDocumentsPreparePaymentDetails");
@@ -28,7 +30,7 @@ app.use("/documents", express.static(path.join(__dirname, "public/documents")));
 // Enable CORS for all routes
 app.use(
   cors({
-    origin: ["http://localhost:3001","https://httaxsolutions.onrender.com", "https://httaxsolutions.onrender.com"], // Multiple origins
+    origin: ["http://localhost:3001","https://httaxsolutions.onrender.com"], // Multiple origins
     methods: ["GET", "POST", "PUT", "DELETE"], // Allowable methods
     allowedHeaders: ["Content-Type", "Authorization"], // Allowable headers
     credentials: true, // If you need to support credentials
@@ -46,6 +48,8 @@ app.use("/admin", adminLoginRoutes);
 app.use("/operators", operatorRoutes);
 app.use("/operator-assignments", operatorAssignUsersRoutes);
 app.use("/pricing", pricingRoutes);
+app.use("/notification", notificationRoutes);
+
 app.use("/tax-profiles",taxProfilesRoutes)
 app.use("/tax-documents", taxDocumentsRoutes);
 app.use("/tax-documents-prepare", taxDocumentsPrepareRoutes);

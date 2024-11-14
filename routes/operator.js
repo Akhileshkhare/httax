@@ -59,12 +59,12 @@ console.log('email,password : ',email,password)
     }
 
     const token = jwt.sign(
-      { id: operator.operator_id, username: operator.username, email: operator.operator_email },
+      { id: operator.operator_id, username: operator.username, email: operator.operator_email,user_type:2 },
       process.env.JWT_SECRET,
       { expiresIn: "1h" }
     );
 
-    res.json({ token, user:{id: operator.operator_id, username: operator.username, email: operator.operator_email ,user_type:'Operator'} });
+    res.json({ token, user:{id: operator.operator_id, username: operator.username, email: operator.operator_email ,user_type:2} });
   } catch (err) {
     console.error("Login error:", err);
     res.status(500).json({ message: "Internal server error." });
@@ -124,6 +124,7 @@ router.get("/assigned-users", authenticateToken, async (req, res) => {
          CONCAT(first_name, ' ', last_name) AS full_name, 
          phone_no, 
          document_status, 
+         user_status,
          status 
        FROM htax_registrations 
        WHERE operator_id = ?`,
@@ -176,7 +177,9 @@ router.get("/assigned-users/:reg_id/documents", authenticateToken, async (req, r
 });
 
 // Download Single Document
-router.get("/documents/download/:document_name", authenticateToken, (req, res) => {
+// router.get("/documents/download/:document_name", authenticateToken, (req, res) => {
+  router.get("/documents/download/:document_name", (req, res) => {
+
   const { document_name } = req.params;
   const filePath = path.join(__dirname, "../uploads/documents/", document_name);
 
@@ -197,6 +200,8 @@ router.get("/documents/download/:document_name", authenticateToken, (req, res) =
 
 // Download All Documents for a User as a Zip (Optional)
 const archiver = require("archiver");
+const { sendMail } = require("./mailService");
+const { title } = require("process");
 router.get("/documents/download-all/:reg_id", authenticateToken, async (req, res) => {
   const { reg_id } = req.params;
   const operatorId = req.user.id;
@@ -406,7 +411,7 @@ router.post("/upload-documents", authenticateToken, async (req, res) => {
   const year = new Date().getFullYear();
 
   // Define paths
-  const docsDir = path.join(__dirname, "../public/documents", year.toString(), `${username}_${operatorId}`);
+  const docsDir = path.join(__dirname, "../uploads/documents", year.toString(), `${username}_${operatorId}`);
 
   // Create directories if they don't exist
   if (!fs.existsSync(docsDir)) {
@@ -491,6 +496,24 @@ const tempStorage = multer.diskStorage({
 });
 
 const uploadDoc = multer({ storage: tempStorage });
+
+const sendDocumentNotification = async (recipientEmail, username,titles, files) => {
+  const subject = `New Document(s) Uploaded by ${username}`;
+  const text = `
+    Hello,
+
+    The following document(s) have been uploaded by ${username} :
+    
+    ${titles.map((title, index) => `- ${title} (${files[index].originalname})`).join('\n')}
+    
+    Please review them at your earliest convenience.
+
+    Thank you.
+  `;
+
+  await sendMail(recipientEmail, subject, text);
+};
+
 // POST /api/operator/upload-documents/:reg_id
 router.post('/upload-documents/:reg_id', authenticateToken, uploadDoc.array('documents'), async (req, res) => {
   const { reg_id } = req.params;
@@ -580,7 +603,30 @@ console.log('Query : ',values);
       });
     });
 
-    res.status(200).json({ message: 'Files uploaded and data saved successfully' });
+    // Determine the recipient email (operator or admin)
+    let recipientEmail;
+    if (users.operator_id > 0) {
+      // Get operator's email
+      const [operator] = await pool.query('SELECT operator_email FROM htax_operator WHERE operator_id = ?', [users.operator_id]);
+      if (operator.length > 0) {
+        recipientEmail = operator[0].email;
+      }
+    } else {
+      // Get admin's email (assuming first admin as the default recipient)
+      const [admin] = await pool.query('SELECT email FROM htax_admin_login WHERE status = "active" LIMIT 1');
+      if (admin.length > 0) {
+        recipientEmail = admin[0].email;
+      }
+    }
+
+    // Prepare and send the notification email
+    if (recipientEmail) {     
+      // await transporter.sendMail(mailOptions);
+      sendDocumentNotification(recipientEmail,username,titles,files) 
+    }
+
+    res.status(200).json({ message: 'Files uploaded, data saved, and notification sent successfully' });
+  
   } catch (err) {
     console.error('Error uploading files:', err);
     res.status(500).json({ message: 'Internal server error' });

@@ -7,43 +7,99 @@ const pool = require("../db");
 const router = express.Router();
 
 // Login
+// router.post("/login", async (req, res) => {
+//   const { email, password } = req.body;
+
+//   try {
+//     const [rows] = await pool.query("SELECT * FROM htax_registrations WHERE email = ?", [email]);
+//     console.log('Get Registration:', rows); // Check what rows is returned
+  
+//     if (rows.length === 0) {
+//       console.error("Email not found");
+//       return res.status(401).json({ error: "Invalid email or password." });
+//     }
+  
+//     const user = rows[0];
+//     const passwordMatch = await bcrypt.compare(password, user.password);
+  
+//     console.log('Password Match:', passwordMatch); // Ensure it's true/false
+  
+//     if (!passwordMatch) {
+//       console.error("Password does not match");
+//       return res.status(401).json({ error: "Invalid email or password." });
+//     }
+  
+//     const jwtSecret = process.env.JWT_SECRET;
+
+//     if (!jwtSecret) {
+//       console.error("JWT_SECRET is not defined.");
+//       return res.status(500).json({ error: "JWT_SECRET is not defined." });
+//     }
+    
+//     const token = jwt.sign(
+//       { reg_id: user.reg_id, email: user.email, operator_id: user.operator_id,user_type: 1 },
+//       jwtSecret,
+//       { expiresIn: "1h" }
+//     );
+  
+//     console.log("Generated JWT token:", token);
+  
+//     res.json({
+//       token,
+//       user: {
+//         reg_id: user.reg_id,
+//         email: user.email,
+//         first_name: user.first_name,
+//         last_name: user.last_name,
+//         user_type:1
+//       },
+//     });
+//   } catch (error) {
+//     console.error("Error in /login route:", error);
+//     res.status(500).json({ error: "Internal server error." });
+//   }
+  
+// });
+
 router.post("/login", async (req, res) => {
   const { email, password } = req.body;
 
   try {
     const [rows] = await pool.query("SELECT * FROM htax_registrations WHERE email = ?", [email]);
-    console.log('Get Registration:', rows); // Check what rows is returned
-  
+    console.log("Get Registration:", rows); // Check what rows is returned
+
     if (rows.length === 0) {
       console.error("Email not found");
       return res.status(401).json({ error: "Invalid email or password." });
     }
-  
+
     const user = rows[0];
     const passwordMatch = await bcrypt.compare(password, user.password);
-  
-    console.log('Password Match:', passwordMatch); // Ensure it's true/false
-  
+
+    console.log("Password Match:", passwordMatch); // Ensure it's true/false
+
     if (!passwordMatch) {
       console.error("Password does not match");
       return res.status(401).json({ error: "Invalid email or password." });
     }
-  
-    const jwtSecret = process.env.JWT_SECRET;
 
+    const jwtSecret = process.env.JWT_SECRET;
     if (!jwtSecret) {
       console.error("JWT_SECRET is not defined.");
       return res.status(500).json({ error: "JWT_SECRET is not defined." });
     }
-    
+
     const token = jwt.sign(
-      { reg_id: user.reg_id, email: user.email, operator_id: user.operator_id },
+      { reg_id: user.reg_id, email: user.email, operator_id: user.operator_id, user_type: 1 },
       jwtSecret,
       { expiresIn: "1h" }
     );
-  
+
     console.log("Generated JWT token:", token);
-  
+
+    // Update the last_login_time field in the database
+    await pool.query("UPDATE htax_registrations SET last_login_time = NOW() WHERE reg_id = ?", [user.reg_id]);
+
     res.json({
       token,
       user: {
@@ -51,15 +107,17 @@ router.post("/login", async (req, res) => {
         email: user.email,
         first_name: user.first_name,
         last_name: user.last_name,
-        user_type:'Client'
+        user_type: 1,
       },
     });
   } catch (error) {
     console.error("Error in /login route:", error);
     res.status(500).json({ error: "Internal server error." });
   }
-  
 });
+
+
+
 // Token validation endpoint
 router.get("/validate-token", (req, res) => {
   // Extract token from the Authorization header
@@ -83,9 +141,19 @@ router.get("/validate-token", (req, res) => {
         return res.status(400).json({ message: "Authentication error." });
       }
     }
+   // Token is valid; retrieve user_type
+   const userType = decoded.user_type;
 
-    // Token is valid
-    res.status(200).json({ message: "Token is valid.", user: decoded });
+   if (!userType) {
+     return res.status(400).json({ message: "User type not found in token." });
+   }
+
+   // Respond with user_type information
+   res.status(200).json({
+     message: "Token is valid.",
+     user: decoded,
+     user_type: userType,  // Send user_type for identification
+   });
   });
 });
 
