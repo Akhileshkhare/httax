@@ -196,13 +196,13 @@ router.post('/', authenticateToken, async (req, res) => {
   });
   router.get('/:id', authenticateToken, async (req, res) => {
     try {
-      const regId=req.params.id     
+      const profileId=req.params.id     
   
       const [profile] = await db.query(
-        `SELECT * FROM htax_profiles WHERE reg_id = ?`,
-        [regId]
+        `SELECT * FROM htax_profiles WHERE id = ?`,
+        [profileId]
       );
-      const profileId = profile.id;
+      // const profileId = profile.id;
       const [dependents] = await db.query(
         `SELECT * FROM dependents WHERE tax_profile_id = ?`,
         [profileId]
