@@ -266,5 +266,44 @@ router.post('/', authenticateToken, async (req, res) => {
       res.status(500).send('Server error');
     }
   });
+  router.delete('/dependents/:id', (req, res) => {
+    const dependentId = req.params.id;
+    if (!dependentId) {
+      return res.status(400).json({ error: "Dependent ID is required." });
+    }
+    // SQL query to delete a record
+    const query = `DELETE FROM dependents WHERE id = ?`;
+
+    db.query(query, [dependentId], (err, result) => {
+        if (err) {
+            console.error('Error deleting dependent:', err);
+            return res.status(500).json({ message: 'Failed to delete dependent', error: err });
+        }
+
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ message: 'Dependent not found' });
+        }
+
+        res.status(200).json({ message: 'Dependent deleted successfully', id: dependentId });
+    });
+});
+router.delete("/residency-info/:id", async (req, res) => {
+  const { id } = req.params;
+
+  if (!id) {
+    return res.status(400).json({ error: "Residency info ID is required." });
+  }
+
+  try {
+    // Delete the residency entry
+    const deleteQuery = "DELETE FROM residency_info WHERE id = ?";
+    await db.execute(deleteQuery, [id]);
+
+    return res.status(200).json({ message: "Residency info deleted successfully." });
+  } catch (error) {
+    console.error("Error deleting residency info:", error);
+    return res.status(500).json({ error: "Internal Server Error." });
+  }
+});
   
 module.exports = router;
