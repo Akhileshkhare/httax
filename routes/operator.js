@@ -125,7 +125,8 @@ router.get("/assigned-users", authenticateToken, async (req, res) => {
          phone_no, 
          document_status, 
          user_status,
-         status 
+         status,
+         tax_profile_id 
        FROM htax_registrations 
        WHERE operator_id = ?`,
       [operatorId]
