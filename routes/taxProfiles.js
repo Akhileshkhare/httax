@@ -6,6 +6,7 @@ const authenticateToken = require("../auth");
 const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
+const { sendMail } = require("./mailService");
 require("dotenv").config(); // Ensure you have a .env file with JWT_SECRET
 
 const router = express.Router();
@@ -85,61 +86,65 @@ router.post('/', authenticateToken, async (req, res) => {
   });
   
   router.put('/:id', authenticateToken, async (req, res) => {
+    console.log('Content-Type:', req.headers['content-type']);
+    console.log('Request Body:', req.body);
     const profileId = req.params.id;
     const profile = req.body;
-  
+  console.log('Profile Data Value : ',profile);
     try {
       // Destructure the profile object to get individual pieces of data
       const { personalInfo, dependents, residencyInfo, bankDetails } = profile;
   
-      // Update the personal information
       const updatePersonalInfoQuery = `
-        UPDATE htax_profiles SET 
-          first_name = ?, middle_name = ?, last_name = ?, street_address = ?, apartment_number = ?, 
-          city = ?, state = ?, zip = ?, ssn_or_itin = ?, apply_for_itin = ?, date_of_birth = ?, 
-          filing_status = ?
-        WHERE id = ?;
-      `;
-  
-      await db.query(updatePersonalInfoQuery, [
-        personalInfo.firstName,
-        personalInfo.middleName,
-        personalInfo.lastName,
-        personalInfo.address.streetAddress,
-        personalInfo.address.apartmentNumber,
-        personalInfo.address.city,
-        personalInfo.address.state,
-        personalInfo.address.zip,
-        personalInfo.ssnOrItin,
-        personalInfo.applyForITIN,
-        personalInfo.dateOfBirth,
-        personalInfo.filingStatus,
-        profileId
-      ]);
-  
-      // Update spouse information if available
-      if (personalInfo.spouseInfo) {
-        const updateSpouseInfoQuery = `
-          UPDATE spouses SET
-            first_name = ?, middle_name = ?, last_name = ?, date_of_birth = ?, ssn_or_itin = ?, apply_for_itin = ?
-          WHERE profile_id = ?;
-        `;
-        await db.query(updateSpouseInfoQuery, [
-          personalInfo.spouseInfo.firstName,
-          personalInfo.spouseInfo.middleName,
-          personalInfo.spouseInfo.lastName,
-          personalInfo.spouseInfo.dateOfBirth,
-          personalInfo.spouseInfo.ssnOrItin,
-          personalInfo.spouseInfo.applyForITIN,
-          profileId
-        ]);
-      }
+      UPDATE htax_profiles SET 
+        first_name = ?, 
+        middle_name = ?, 
+        last_name = ?, 
+        street_address = ?, 
+        apartment_number = ?, 
+        city = ?, 
+        state = ?, 
+        zip = ?, 
+        ssn_or_itin = ?, 
+        apply_for_itin = ?, 
+        date_of_birth = ?, 
+        filing_status = ?, 
+        spouse_first_name = ?, 
+        spouse_middle_name = ?, 
+        spouse_last_name = ?, 
+        spouse_dob = ?, 
+        spouse_ssn_or_itin = ?, 
+        spouse_apply_for_itin = ?
+      WHERE id = ?;
+    `;
+
+    await db.query(updatePersonalInfoQuery, [
+      personalInfo.firstName,
+      personalInfo.middleName,
+      personalInfo.lastName,
+      personalInfo.address.streetAddress,
+      personalInfo.address.apartmentNumber,
+      personalInfo.address.city,
+      personalInfo.address.state,
+      personalInfo.address.zip,
+      personalInfo.ssnOrItin,
+      personalInfo.applyForITIN,
+      personalInfo.dateOfBirth,
+      personalInfo.filingStatus,
+      personalInfo.spouseInfo?.firstName || null,
+      personalInfo.spouseInfo?.middleName || null,
+      personalInfo.spouseInfo?.lastName || null,
+      personalInfo.spouseInfo?.dateOfBirth || null,
+      personalInfo.spouseInfo?.ssnOrItin || null,
+      personalInfo.spouseInfo?.applyForITIN || null,
+      profileId,
+    ]);
   
       // Update or insert dependents (replace all dependents for simplicity)
-      await db.query('DELETE FROM dependents WHERE profile_id = ?', [profileId]);
+      await db.query('DELETE FROM dependents WHERE tax_profile_id = ?', [profileId]);
   
       const insertDependentQuery = `
-        INSERT INTO dependents (profile_id, first_name, middle_name, last_name, date_of_birth, ssn_or_itin, relationship, apply_for_itin)
+        INSERT INTO dependents (tax_profile_id, first_name, middle_name, last_name, date_of_birth, ssn_or_itin, relationship, apply_for_itin)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?);
       `;
   
@@ -157,10 +162,10 @@ router.post('/', authenticateToken, async (req, res) => {
       }
   
       // Update or insert residency information (replace all residency info for simplicity)
-      await db.query('DELETE FROM residency_info WHERE profile_id = ?', [profileId]);
+      await db.query('DELETE FROM residency_info WHERE tax_profile_id = ?', [profileId]);
   
       const insertResidencyQuery = `
-        INSERT INTO residency_info (profile_id, state, residency_begin_date, residency_end_date)
+        INSERT INTO residency_info (tax_profile_id, state, residency_begin_date, residency_end_date)
         VALUES (?, ?, ?, ?);
       `;
   
@@ -177,7 +182,7 @@ router.post('/', authenticateToken, async (req, res) => {
       const updateBankDetailsQuery = `
         UPDATE bank_details SET
           bank_name = ?, account_type = ?, routing_number = ?, account_number = ?
-        WHERE profile_id = ?;
+        WHERE tax_profile_id = ?;
       `;
   
       await db.query(updateBankDetailsQuery, [
@@ -238,15 +243,15 @@ router.post('/', authenticateToken, async (req, res) => {
       await db.beginTransaction();
   
       // Delete dependents associated with the profile
-      const deleteDependentsQuery = 'DELETE FROM dependents WHERE profile_id = ?';
+      const deleteDependentsQuery = 'DELETE FROM dependents WHERE tax_profile_id = ?';
       await db.query(deleteDependentsQuery, [profileId]);
   
       // Delete residency information associated with the profile
-      const deleteResidencyQuery = 'DELETE FROM residency_info WHERE profile_id = ?';
+      const deleteResidencyQuery = 'DELETE FROM residency_info WHERE tax_profile_id = ?';
       await db.query(deleteResidencyQuery, [profileId]);
   
       // Delete bank details associated with the profile
-      const deleteBankDetailsQuery = 'DELETE FROM bank_details WHERE profile_id = ?';
+      const deleteBankDetailsQuery = 'DELETE FROM bank_details WHERE tax_profile_id = ?';
       await db.query(deleteBankDetailsQuery, [profileId]);
   
       // Finally, delete the tax profile itself
@@ -305,5 +310,91 @@ router.delete("/residency-info/:id", async (req, res) => {
     return res.status(500).json({ error: "Internal Server Error." });
   }
 });
-  
+  // POST /generate-otp
+router.post('/generate-otp', authenticateToken, async (req, res) => {
+  try {
+    const { reg_id } = req.body;
+console.log('Reg ID',reg_id)
+    // Generate a 6-digit OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+
+    // Set expiry time (5 minutes from now)
+    const expiryTime = Date.now() + 5 * 60 * 1000;
+
+    // Update the OTP and expiry in the database
+    await db.query(
+      'UPDATE htax_profiles SET profile_update_otp = ?, otp_expiry = ? WHERE id = ?',
+      [otp, expiryTime, reg_id]
+    );
+
+    // Retrieve the user's regId using id
+    const [userReg] = await db.query('SELECT reg_id FROM htax_profiles WHERE id = ?', [reg_id]);
+    if (!userReg.length) {
+      return res.status(404).send('User not found.');
+    }
+
+    const regId = userReg[0].reg_id;
+    // Retrieve the user's email using reg_id
+    const [user] = await db.query('SELECT email,first_name, last_name  FROM htax_registrations WHERE reg_id = ?', [regId]);
+    if (!user.length) {
+      return res.status(404).send('User not found.');
+    }
+
+    const email = user[0].email;
+    const userName = `${user[0].first_name} ${user[0].last_name}`;
+
+    // Send the OTP to the user's email
+    const text = `Hello ${userName},
+
+    Your OTP is ${otp}. It is valid for 5 minutes.
+    
+    Best regards,
+    HTTax Solutions`;
+
+    await sendMail(email,'Your OTP for Profile Update',text);
+
+    res.status(200).send('OTP sent successfully.');
+  } catch (error) {
+    console.error('Error generating OTP:', error);
+    res.status(500).send('Error generating or sending OTP.');
+  }
+});
+// POST /verify-otp
+router.post('/verify-otp', authenticateToken, async (req, res) => {
+  try {
+    const { reg_id, otp } = req.body;
+
+    // Check the OTP and expiry in the database
+    const [rows] = await db.query(
+      'SELECT profile_update_otp, otp_expiry FROM htax_profiles WHERE id = ?',
+      [reg_id]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).send('User not found.');
+    }
+
+    const { profile_update_otp, otp_expiry } = rows[0];
+console.log('OTP Data : ',profile_update_otp,otp,reg_id);
+    if (/^\d{6}$/.test(otp)&&parseInt(profile_update_otp) !== parseInt(otp)) {
+      return res.status(400).send('Invalid OTP.');
+    }
+
+    if (Date.now() > otp_expiry) {
+      return res.status(400).send('OTP has expired.');
+    }
+
+    // OTP is valid, clear it from the database
+    await db.query(
+      'UPDATE htax_profiles SET profile_update_otp = NULL, otp_expiry = NULL WHERE id = ?',
+      [reg_id]
+    );
+
+    res.status(200).send('OTP verified successfully.');
+  } catch (error) {
+    console.error('Error verifying OTP:', error);
+    res.status(500).send('Error verifying OTP.');
+  }
+});
+
 module.exports = router;

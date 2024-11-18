@@ -390,7 +390,7 @@ const text = `Hello ${operatorName},
 You have been assigned a new user: ${userName} (Registration ID: ${reg_id}). Please check the platform for further details.
 
 Best regards,
-Your Team`;
+HTTax Solutions`;
 
 await sendMail(operatorEmail, subject, text);
 
