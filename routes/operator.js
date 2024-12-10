@@ -6,7 +6,12 @@ const authenticateToken = require("../auth");
 const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
+const archiver = require("archiver");
+const { sendMail } = require("./mailService");
+const { title } = require("process");
 require("dotenv").config(); // Ensure you have a .env file with JWT_SECRET
+const AWS = require("aws-sdk");
+const axios = require("axios");
 
 const router = express.Router();
 
@@ -139,13 +144,13 @@ router.get("/assigned-users", authenticateToken, async (req, res) => {
   }
 });
 
+
 // Fetch Documents for a Specific User
 router.get("/assigned-users/:reg_id/documents", authenticateToken, async (req, res) => {
   const { reg_id } = req.params;
   const operatorId = req.user.id;
 
   try {
-    // Verify that the user is assigned to the operator
     const [user] = await pool.query(
       `SELECT * FROM htax_registrations WHERE reg_id = ? AND operator_id = ?`,
       [reg_id, operatorId]
@@ -155,14 +160,13 @@ router.get("/assigned-users/:reg_id/documents", authenticateToken, async (req, r
       return res.status(404).json({ message: "User not found or not assigned to you." });
     }
 
-    // Fetch documents
     const [documents] = await pool.query(
       `SELECT 
          title, 
          document_name, 
          file_type, 
-         operator_review_status, 
-         operator_review_date, 
+         s3_key, 
+         s3_bucket,
          upload_date, 
          status 
        FROM htax_tax_documents 
@@ -170,7 +174,21 @@ router.get("/assigned-users/:reg_id/documents", authenticateToken, async (req, r
       [reg_id]
     );
 
-    res.json(documents);
+    // Generate signed URLs for each document
+    const documentsWithUrls = documents.map((doc) => {
+      const signedUrl = s3.getSignedUrl("getObject", {
+        Bucket: doc.s3_bucket,
+        Key: doc.s3_key,
+        Expires: 60 * 60, // Link valid for 1 hour
+      });
+
+      return {
+        ...doc,
+        signedUrl,
+      };
+    });
+
+    res.json(documentsWithUrls);
   } catch (err) {
     console.error("Fetch Documents Error:", err);
     res.status(500).json({ message: "Internal server error." });
@@ -178,37 +196,42 @@ router.get("/assigned-users/:reg_id/documents", authenticateToken, async (req, r
 });
 
 // Download Single Document
-// router.get("/documents/download/:document_name", authenticateToken, (req, res) => {
-  router.get("/documents/download/:document_name", (req, res) => {
-
+router.get("/documents/download/:document_name", authenticateToken, async (req, res) => {
   const { document_name } = req.params;
-  const filePath = path.join(__dirname, "../uploads/documents/", document_name);
 
-  fs.access(filePath, fs.constants.F_OK, (err) => {
-    if (err) {
-      console.error("Document not found:", err);
+  try {
+    const [documents] = await pool.query(
+      `SELECT s3_key, s3_bucket FROM htax_tax_documents WHERE document_name = ?`,
+      [document_name]
+    );
+
+    if (documents.length === 0) {
       return res.status(404).json({ message: "Document not found." });
     }
 
-    res.download(filePath, document_name, (err) => {
-      if (err) {
-        console.error("Error downloading document:", err);
-        res.status(500).json({ message: "Error downloading document." });
-      }
+    const { s3_key, s3_bucket } = documents[0];
+
+    // Generate a signed URL
+    const signedUrl = s3.getSignedUrl("getObject", {
+      Bucket: s3_bucket,
+      Key: s3_key,
+      Expires: 60 * 60, // Link valid for 1 hour
     });
-  });
+
+    res.json({ signedUrl });
+  } catch (err) {
+    console.error("Download Document Error:", err);
+    res.status(500).json({ message: "Internal server error." });
+  }
 });
 
 // Download All Documents for a User as a Zip (Optional)
-const archiver = require("archiver");
-const { sendMail } = require("./mailService");
-const { title } = require("process");
 router.get("/documents/download-all/:reg_id", authenticateToken, async (req, res) => {
   const { reg_id } = req.params;
   const operatorId = req.user.id;
 
   try {
-    // Verify that the user is assigned to the operator
+    // Verify the user
     const [user] = await pool.query(
       `SELECT * FROM htax_registrations WHERE reg_id = ? AND operator_id = ?`,
       [reg_id, operatorId]
@@ -218,20 +241,9 @@ router.get("/documents/download-all/:reg_id", authenticateToken, async (req, res
       return res.status(404).json({ message: "User not found or not assigned to you." });
     }
 
-    // Fetch user details to get the username
-    const [users] = await pool.query('SELECT first_name, last_name FROM htax_registrations WHERE reg_id = ?', [reg_id]);
-
-    if (users.length === 0) {
-      return res.status(404).json({ message: 'User not found' });
-    }
-
-    const username = `${users[0].first_name}_${users[0].last_name}`;
-    const currentYear = new Date().getFullYear().toString();
-    const uploadDir = path.join(__dirname, '../uploads/documents', currentYear, `${username}_${reg_id}`);
-
-    // Fetch documents
+    // Fetch document metadata
     const [documents] = await pool.query(
-      `SELECT document_name FROM htax_tax_documents WHERE reg_id = ?`,
+      `SELECT s3_key, s3_bucket, document_name FROM htax_tax_documents WHERE reg_id = ?`,
       [reg_id]
     );
 
@@ -239,30 +251,30 @@ router.get("/documents/download-all/:reg_id", authenticateToken, async (req, res
       return res.status(404).json({ message: "No documents found for this user." });
     }
 
-    // Set response headers for zip download
+    // Set up response for ZIP streaming
     res.setHeader("Content-Type", "application/zip");
     res.setHeader("Content-Disposition", `attachment; filename=user_${reg_id}_documents.zip`);
 
-    const archive = archiver("zip", {
-      zlib: { level: 9 }, // Maximum compression
-    });
-
-    archive.on("error", (err) => {
-      console.error("Archive Error:", err);
-      res.status(500).json({ message: "Internal server error." });
-    });
-
+    const archive = archiver("zip", { zlib: { level: 9 } }); // Max compression
     archive.pipe(res);
 
-    // Append each document to the archive
-    documents.forEach((doc) => {
-      const filePath = path.join(uploadDir, doc.document_name); // Adjust path based on your upload structure
-      if (fs.existsSync(filePath)) { // Check if the file exists
-        archive.file(filePath, { name: doc.document_name });
-      } else {
-        console.warn(`File not found: ${filePath}`);
-      }
-    });
+    for (const doc of documents) {
+      const signedUrl = s3.getSignedUrl("getObject", {
+        Bucket: doc.s3_bucket,
+        Key: doc.s3_key,
+        Expires: 60 * 60, // 1-hour expiration
+      });
+
+      // Fetch the file using the signed URL
+      const fileStream = await axios({
+        url: signedUrl,
+        method: "GET",
+        responseType: "stream",
+      });
+
+      // Add each file to the ZIP archive
+      archive.append(fileStream.data, { name: doc.document_name });
+    }
 
     archive.finalize();
   } catch (err) {
@@ -270,58 +282,6 @@ router.get("/documents/download-all/:reg_id", authenticateToken, async (req, res
     res.status(500).json({ message: "Internal server error." });
   }
 });
-// router.get("/documents/download-all/:reg_id", authenticateToken, async (req, res) => {
-//   const { reg_id } = req.params;
-//   const operatorId = req.user.id;
-
-//   try {
-//     // Verify that the user is assigned to the operator
-//     const [user] = await pool.query(
-//       `SELECT * FROM htax_registrations WHERE reg_id = ? AND operator_id = ?`,
-//       [reg_id, operatorId]
-//     );
-
-//     if (user.length === 0) {
-//       return res.status(404).json({ message: "User not found or not assigned to you." });
-//     }
-
-//     // Fetch documents
-//     const [documents] = await pool.query(
-//       `SELECT document_name FROM htax_tax_documents WHERE reg_id = ?`,
-//       [reg_id]
-//     );
-
-//     if (documents.length === 0) {
-//       return res.status(404).json({ message: "No documents found for this user." });
-//     }
-
-//     // Set response headers for zip download
-//     res.setHeader("Content-Type", "application/zip");
-//     res.setHeader("Content-Disposition", `attachment; filename=user_${reg_id}_documents.zip`);
-
-//     const archive = archiver("zip", {
-//       zlib: { level: 9 }, // Maximum compression
-//     });
-
-//     archive.on("error", (err) => {
-//       throw err;
-//     });
-
-//     archive.pipe(res);
-
-//     // Append each document to the archive
-//     documents.forEach((doc) => {
-//       const filePath = path.join(__dirname, "../public/documents/", doc.document_name);
-//       archive.file(filePath, { name: doc.document_name });
-//     });
-
-//     archive.finalize();
-//   } catch (err) {
-//     console.error("Download All Documents Error:", err);
-//     res.status(500).json({ message: "Internal server error." });
-//   }
-// });
-
 
 // Get Operator by ID
 router.get("/:operator_id", authenticateToken, async (req, res) => {
@@ -405,41 +365,58 @@ router.get("/profile/:filename", (req, res) => {
   });
 });
 
-// Upload Documents
-router.post("/upload-documents", authenticateToken, async (req, res) => {
+const s3 = new AWS.S3({
+  accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+  secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+  region: process.env.AWS_REGION
+});
+
+
+// Upload Documents API
+router.post("/upload-documents", authenticateToken, (req, res) => {
   const operatorId = req.user.id;
-  const { username } = req.body; // Assuming username is sent in the body
+  const { username } = req.body; // Assuming username is provided in the request body
   const year = new Date().getFullYear();
 
-  // Define paths
-  const docsDir = path.join(__dirname, "../uploads/documents", year.toString(), `${username}_${operatorId}`);
-
-  // Create directories if they don't exist
-  if (!fs.existsSync(docsDir)) {
-    fs.mkdirSync(docsDir, { recursive: true });
+  if (!username) {
+    return res.status(400).json({ message: "Username is required." });
   }
 
-  // Setup multer for document uploads
-  const documentStorage = multer.diskStorage({
-    destination: (req, file, cb) => {
-      cb(null, docsDir);
-    },
-    filename: (req, file, cb) => {
-      const ext = path.extname(file.originalname);
-      const filename = `${Date.now()}${ext}`; // Use timestamp for unique filenames
-      cb(null, filename);
-    },
-  });
-
-  const documentUpload = multer({ storage: documentStorage }).array("documents", 10); // Accept multiple files
-
-  documentUpload(req, res, (err) => {
+  upload(req, res, async (err) => {
     if (err) {
-      console.error("Upload Documents error:", err);
+      console.error("Upload error:", err);
       return res.status(500).json({ message: "Error uploading documents." });
     }
 
-    res.json({ message: "Documents uploaded successfully." });
+    const files = req.files;
+    if (!files || files.length === 0) {
+      return res.status(400).json({ message: "No files uploaded." });
+    }
+
+    try {
+      for (const file of files) {
+        const s3Key = `documents/${year}/${username}_${operatorId}/${file.filename}`;
+        const fileContent = fs.readFileSync(file.path);
+
+        // Upload to S3
+        await s3
+          .upload({
+            Bucket: process.env.S3_BUCKET_NAME,
+            Key: s3Key,
+            Body: fileContent,
+            ContentType: file.mimetype,
+          })
+          .promise();
+
+        // Clean up the temporary file
+        fs.unlinkSync(file.path);
+      }
+
+      res.status(200).json({ message: "Documents uploaded successfully." });
+    } catch (error) {
+      console.error("S3 upload error:", error);
+      res.status(500).json({ message: "Error uploading files to S3." });
+    }
   });
 });
 
@@ -482,21 +459,7 @@ router.delete("/:operator_id", authenticateToken, async (req, res) => {
     res.status(500).json({ message: "Internal server error." });
   }
 });
-const tempStorage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const tempDir = path.join(__dirname, '../uploads/temp');
-    if (!fs.existsSync(tempDir)) {
-      fs.mkdirSync(tempDir, { recursive: true });
-    }
-    cb(null, tempDir);
-  },
-  filename: (req, file, cb) => {
-    // Use original name with timestamp to ensure uniqueness
-    cb(null, `${file.originalname}`);
-  }
-});
 
-const uploadDoc = multer({ storage: tempStorage });
 
 const sendDocumentNotification = async (recipientEmail, username,titles, files) => {
   const subject = `New Document(s) Uploaded by ${username}`;
@@ -514,124 +477,139 @@ const sendDocumentNotification = async (recipientEmail, username,titles, files) 
 
   await sendMail(recipientEmail, subject, text);
 };
+// Temporary storage setup for Multer
+const tempStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const tempDir = path.join(__dirname, "../uploads/temp");
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true });
+    }
+    cb(null, tempDir);
+  },
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname);
+    const filename = `${Date.now()}${ext}`; // Unique filename
+    cb(null, filename);
+  },
+});
+
+const uploadDoc = multer({ storage: tempStorage }); // Accept up to 10 files
 
 // POST /api/operator/upload-documents/:reg_id
-router.post('/upload-documents/:reg_id', authenticateToken, uploadDoc.array('documents'), async (req, res) => {
+router.post("/upload-documents/:reg_id", authenticateToken, uploadDoc.array("documents"), async (req, res) => {
   const { reg_id } = req.params;
   const files = req.files;
-  const { titles } = req.body; // Expecting titles as an array
 
   if (!files || files.length === 0) {
-    return res.status(400).json({ message: 'No files uploaded' });
+    return res.status(400).json({ message: "No files uploaded" });
   }
-
-  // Ensure titles are provided and match the number of files
+// Normalize titles to an array if a single string is provided
+let titles = req.body.titles;
+if (!Array.isArray(titles)) {
+  titles = [titles];
+}
+if (!Array.isArray(titles)) {
+  titles = [titles];
+}
   if (!titles || !Array.isArray(titles) || titles.length !== files.length) {
-    return res.status(400).json({ message: 'Titles are required and must match the number of files uploaded' });
+    return res.status(400).json({ message: "Titles are required and must match the number of files uploaded" });
   }
 
   try {
     // Fetch username based on reg_id
-    const [users] = await pool.query('SELECT first_name,last_name FROM htax_registrations WHERE reg_id = ?', [reg_id]);
+    const [users] = await pool.query("SELECT first_name, last_name FROM htax_registrations WHERE reg_id = ?", [reg_id]);
 
     if (users.length === 0) {
-      return res.status(404).json({ message: 'User not found' });
+      return res.status(404).json({ message: "User not found" });
     }
 
-    const username =`${ users[0].first_name}_${ users[0].last_name}`;
-console.log('User Name : ',username);
+    const username = `${users[0].first_name}_${users[0].last_name}`;
     const currentYear = new Date().getFullYear().toString();
-    const uploadDir = path.join(__dirname, '../uploads/documents', currentYear, `${username}_${reg_id}`);
 
-    // Create directory if it doesn't exist
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
-
-    const uploadDate = new Date();
-
-    // Process each file
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
       const title = titles[i];
+      const fileType = path.extname(file.originalname).substring(1).toLowerCase();
+      // Ensure the file is safe
+      if (!['pdf','doc','docx', 'jpg', 'png', 'jpeg'].includes(fileType)) {
+        throw new Error(`Unsupported file type: ${fileType}`);
+      }
+      // Upload file to S3
+      const s3Key = `documents/${currentYear}/${username}_${reg_id}/${file.originalname}`;
 
-      const originalName = file.originalname;
-      const storedName = file.filename;
-      const fileType = path.extname(originalName).substring(1).toLowerCase(); // e.g., 'pdf', 'jpg'
+      const bucketName = process.env.S3_BUCKET_NAME;
+     
 
-      // Move file from temp to target directory
-      const targetPath = path.join(uploadDir, storedName);
-      fs.renameSync(file.path, targetPath);
-
-      // Insert into htax_tax_documents
+      try {
+        const fileContent = fs.readFileSync(file.path);      
+        await s3
+          .upload({
+            Bucket: bucketName,
+            Key: s3Key,
+            Body: fileContent,
+            ContentType: file.mimetype,
+          })
+          .promise();
+      
+       
+      
+      // Insert file details into database
       const insertQuery = `
         INSERT INTO htax_tax_documents 
-        (reg_id, title, document_name, file_type, operator_review_status, operator_review_date, manager_review_status, manager_review_date, upload_date, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (reg_id, title, document_name, file_type,s3_key, s3_bucket, operator_review_status, operator_review_date, manager_review_status, manager_review_date, upload_date, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `;
 
       const values = [
         reg_id,
         title,
-        storedName,
+        file.originalname, 
         fileType,
-        'pending', // operator_review_status
-        null,      // operator_review_date
-        'pending', // manager_review_status
-        null,      // manager_review_date
-        uploadDate,
-        'active'   // status
+        s3Key, bucketName,
+        0,
+        null,
+        0,
+        null,
+        new Date(),
+       0,
       ];
-console.log('Query : ',values);
-      await pool.query(insertQuery, values);
-    }
 
-        // Cleanup temporary files after processing
-    const tempDir = path.join(__dirname, '../uploads/temp');
-    fs.readdir(tempDir, (err, files) => {
-      if (err) {
-        console.error('Error reading temp directory:', err);
-        return;
-      }
+      await pool.query(insertQuery, values);  
 
-      // Delete each file in the temp directory
-      files.forEach(file => {
-        fs.unlink(path.join(tempDir, file), (err) => {
-          if (err) {
-            console.error('Error deleting temp file:', err);
-          }
-        });
-      });
-    });
-
-    // Determine the recipient email (operator or admin)
-    let recipientEmail;
-    if (users.operator_id > 0) {
-      // Get operator's email
-      const [operator] = await pool.query('SELECT operator_email FROM htax_operator WHERE operator_id = ?', [users.operator_id]);
-      if (operator.length > 0) {
-        recipientEmail = operator[0].email;
-      }
-    } else {
-      // Get admin's email (assuming first admin as the default recipient)
-      const [admin] = await pool.query('SELECT email FROM htax_admin_login WHERE status = "active" LIMIT 1');
-      if (admin.length > 0) {
-        recipientEmail = admin[0].email;
+        // Clean up the temporary file
+        fs.unlinkSync(file.path);
+      } catch (err) {
+        console.error(`Failed to upload ${file.originalname}:`, err);
+        throw err; // Bubble up the error to handle it outside
       }
     }
+   // Determine the recipient email (operator or admin)
+   let recipientEmail;
+   if (users.operator_id > 0) {
+     // Get operator's email
+     const [operator] = await pool.query('SELECT operator_email FROM htax_operator WHERE operator_id = ?', [users.operator_id]);
+     if (operator.length > 0) {
+       recipientEmail = operator[0].email;
+     }
+   } else {
+     // Get admin's email (assuming first admin as the default recipient)
+     const [admin] = await pool.query('SELECT email FROM htax_admin_login WHERE status = "active" LIMIT 1');
+     if (admin.length > 0) {
+       recipientEmail = admin[0].email;
+     }
+   }
 
-    // Prepare and send the notification email
-    if (recipientEmail) {     
-      // await transporter.sendMail(mailOptions);
-      sendDocumentNotification(recipientEmail,username,titles,files) 
-    }
+   // Prepare and send the notification email
+   if (recipientEmail) {     
+     // await transporter.sendMail(mailOptions);
+     sendDocumentNotification(recipientEmail,username,titles,files) 
+   }
 
-    res.status(200).json({ message: 'Files uploaded, data saved, and notification sent successfully' });
-  
+
+    res.status(200).json({ message: "Files uploaded to S3, data saved, and notification sent successfully" });
   } catch (err) {
-    console.error('Error uploading files:', err);
-    res.status(500).json({ message: 'Internal server error' });
+    console.error("Error uploading files to S3:", err);
+    res.status(500).json({ message: "Internal server error" });
   }
 });
-
 module.exports = router;

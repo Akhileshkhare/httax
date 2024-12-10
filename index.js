@@ -30,7 +30,7 @@ app.use("/documents", express.static(path.join(__dirname, "public/documents")));
 // Enable CORS for all routes
 app.use(
   cors({
-    origin: ["http://localhost:3001","https://httaxsolutions.onrender.com"], // Multiple origins
+    origin: ["http://localhost:3001","https://httaxsolutions.onrender.com","http://ec2-52-66-241-116.ap-south-1.compute.amazonaws.com/"], // Multiple origins
     methods: ["GET", "POST", "PUT", "DELETE"], // Allowable methods
     allowedHeaders: ["Content-Type", "Authorization"], // Allowable headers
     credentials: true, // If you need to support credentials
@@ -65,7 +65,7 @@ app.get("/", (req, res) => {
 });
 
 // Start the server
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });

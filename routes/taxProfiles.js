@@ -364,7 +364,12 @@ router.post('/verify-otp', authenticateToken, async (req, res) => {
   try {
     const { reg_id, otp } = req.body;
 
-    // Check the OTP and expiry in the database
+    // Validate inputs
+    if (!reg_id || !/^\d{6}$/.test(otp)) {
+      return res.status(400).send('Invalid input.');
+    }
+
+    // Retrieve OTP and expiry details
     const [rows] = await db.query(
       'SELECT profile_update_otp, otp_expiry FROM htax_profiles WHERE id = ?',
       [reg_id]
@@ -375,16 +380,18 @@ router.post('/verify-otp', authenticateToken, async (req, res) => {
     }
 
     const { profile_update_otp, otp_expiry } = rows[0];
-console.log('OTP Data : ',profile_update_otp,otp,reg_id);
-    if (/^\d{6}$/.test(otp)&&parseInt(profile_update_otp) !== parseInt(otp)) {
+
+    // Validate OTP
+    if (parseInt(profile_update_otp, 10) !== parseInt(otp, 10)) {
       return res.status(400).send('Invalid OTP.');
     }
 
-    if (Date.now() > otp_expiry) {
+    // Check OTP expiry
+    if (Date.now() > new Date(otp_expiry).getTime()) {
       return res.status(400).send('OTP has expired.');
     }
 
-    // OTP is valid, clear it from the database
+    // OTP is valid; clear it from the database
     await db.query(
       'UPDATE htax_profiles SET profile_update_otp = NULL, otp_expiry = NULL WHERE id = ?',
       [reg_id]
@@ -396,5 +403,6 @@ console.log('OTP Data : ',profile_update_otp,otp,reg_id);
     res.status(500).send('Error verifying OTP.');
   }
 });
+
 
 module.exports = router;
