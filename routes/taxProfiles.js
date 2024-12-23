@@ -366,7 +366,7 @@ router.post('/verify-otp', authenticateToken, async (req, res) => {
 
     // Validate inputs
     if (!reg_id || !/^\d{6}$/.test(otp)) {
-      return res.status(400).send('Invalid input.');
+      return res.status(400).send('Invalid OTP.');
     }
 
     // Retrieve OTP and expiry details

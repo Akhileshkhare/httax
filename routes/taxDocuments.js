@@ -5,6 +5,27 @@ const authenticateToken = require("../auth");
 
 const router = express.Router();
 
+
+router.get('/document/:reg_id', authenticateToken, async (req, res) => {
+  const { reg_id } = req.params;
+
+  try {
+    const [documents] = await pool.query(
+      'SELECT id, title, document_name FROM htax_tax_documents WHERE reg_id = ? AND status = "active"',
+      [reg_id]
+    );
+
+    if (documents.length === 0) {
+      return res.status(404).json({ message: 'No documents found for this user' });
+    }
+
+    res.status(200).json(documents);
+  } catch (err) {
+    console.error('Error fetching documents:', err);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
 // Create a new tax document entry
 router.post("/", authenticateToken, async (req, res) => {
   const {
@@ -45,25 +66,6 @@ router.post("/", authenticateToken, async (req, res) => {
   }
 });
 
-router.get('/document/:reg_id', authenticateToken, async (req, res) => {
-  const { reg_id } = req.params;
-
-  try {
-    const [documents] = await pool.query(
-      'SELECT id, title, document_name FROM htax_tax_documents WHERE reg_id = ? AND status = "active"',
-      [reg_id]
-    );
-
-    if (documents.length === 0) {
-      return res.status(404).json({ message: 'No documents found for this user' });
-    }
-
-    res.status(200).json(documents);
-  } catch (err) {
-    console.error('Error fetching documents:', err);
-    res.status(500).json({ message: 'Internal server error' });
-  }
-});
 
 // Get a single tax document entry by ID
 router.get("/:id", authenticateToken, async (req, res) => {

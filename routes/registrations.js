@@ -7,35 +7,17 @@ const crypto = require("crypto");
 const nodemailer = require("nodemailer");
 const { sendMail } = require("./mailService");
 
-// Create a transporter
-const transporter = nodemailer.createTransport({
-  service: "gmail",
-  host: "smtp.gmail.com",
-  port: 587,
-  auth: {
-    user: "akhileshkhare.work@gmail.com",
-    pass: "qvlw zqtj zdsy tfmf",
-  },
-});
+// const transporter = nodemailer.createTransport({
+//   service: "gmail",
+//   host: "smtp.gmail.com",
+//   port: 587,
+//   auth: {
+//     user: "akhileshkhare.work@gmail.com",
+//     pass: "qvlw zqtj zdsy tfmf",
+//   },
+// });
 
-// Function to send verification email
-async function sendVerificationEmail(email, verificationCode) {
-  try {
-    const mailOptions = {
-      from: "HTTaxSolutions <akhileshkhare.work@example.com>",
-      to: email,
-      subject: "Email Verification",
-      text: `Your verification code is: ${verificationCode}`,
-      html: `<p>Your verification code is: <b>${verificationCode}</b></p>`,
-    };
 
-    await transporter.sendMail(mailOptions);
-    console.log("Verification email sent");
-  } catch (error) {
-    console.error("Error sending verification email:", error);
-    throw error;
-  }
-}
 
 function generateVerificationCode() {
   return crypto.randomBytes(20).toString("hex"); // Generate a random hexadecimal string
@@ -145,6 +127,7 @@ router.post("/", async (req, res) => {
       [email]
     );
     if (existingUser.length > 0) {
+      console.log('USer Data : ',existingUser);
       return res.status(409).json({ error: "User already exists." });
     }
     console.log("Signup Data : ", req.body, ip_address);
@@ -190,27 +173,14 @@ router.post("/", async (req, res) => {
       reg_id: result.insertId,
     });
     // Send verification email
-    const mailOptions = {
-      from: "HTTaxSolutions <akhileshkhare.work@example.com>",
+    const mailOptions = {    
       to: email,
       subject: "Please verify your HTTaxSolutions account",
       text: `Hi ${first_name} ${last_name},\n\nPlease click the link below to verify your email address and activate your account. This link will remain active for 24 hrs.\n\n${process.env.NODE_ENV==='production'?process.env.MAIL_URL_PROD:process.env.BASE_URL_DEV}/verify/${verificationCode}\n\nBest Regards,\n\nHTTaxSolutions`,
     };
     
 
-    transporter.sendMail(mailOptions, (error, info) => {
-      if (error) {
-        console.log("Error sending verification email:", error);
-        return res
-          .status(500)
-          .json({ error: "Failed to send verification email." });
-      }
-      console.log("Verification email sent:", info.response);
-      res.status(201).json({
-        message: "User registered successfully. Verification email sent.",
-        reg_id: result.insertId,
-      });
-    });
+    await sendMail(mailOptions.to,mailOptions.subject,mailOptions.text);
   } catch (error) {
     console.log(error);
     res.status(500).json({ error: "Internal server error." });
@@ -433,21 +403,21 @@ const userName = `${userResult[0].first_name} ${userResult[0].last_name}`;
 const operatorId = userResult[0].operator_id;
 
 // Define messages based on new status
-if (newStatus === "pending") {
+if (newStatus === '0') {
   // Notify user when status changes to "pending"
   const subject = "Status Update: Pending";
   const text = `Dear ${userName},
 
-Your account status has been changed to "Pending". Please log in to review your information.
+Your account documents status has been changed to "Pending". Please log in to review your information.
 
 Best regards,
-Your Team`;
+HTTaxSolutions Team`;
 
   await sendMail(userEmail, subject, text);
 }
 
 // Notify admin when status changes to "ManagerReview"
-if (newStatus === "ManagerReview") {
+if (newStatus === '2') {
   const [adminResult] = await pool.query(
     "SELECT email FROM htax_admin_login WHERE admin_type = 'Admin'"
   );
@@ -460,14 +430,14 @@ if (newStatus === "ManagerReview") {
 The user ${userName} (Registration ID: ${reg_id}) is now under Manager Review. Please review their account as soon as possible.
 
 Thank you,
-Your Team`;
+HTTaxSolutions Team`;
 
     await sendMail(adminEmail, subject, text);
   }
 }
 
 // Notify the operator if status changes to "SubmittedForReview" and an operator is assigned
-if (newStatus === "SubmittedForReview" && operatorId !== 0) {
+if (newStatus === '1' && operatorId !== 0) {
   const [operatorResult] = await pool.query(
     "SELECT operator_email FROM htax_operator WHERE operator_id = ?",
     [operatorId]
@@ -481,11 +451,100 @@ if (newStatus === "SubmittedForReview" && operatorId !== 0) {
       The user ${userName} (Registration ID: ${reg_id}) has been submitted for your review. Please check the platform for further details.
 
       Thank you,
-      Your Team`;
+      HTTaxSolutions Team`;
 
           await sendMail(operatorEmail, subject, text);
         }
+        
+
+        const subject = "Submitting your documents for tax preparation";
+        const text = `Dear ${userName},
+      
+    Thank you for Submitting your documents for tax preparation. We will get provide you a draft of your tax return within next 24-48 hours. We will contact you if any additional document/information is required for your tax preparation. 
+
+    Thank you for giving us an opportunity to serve you. 
+    HTTaxSolutions Team`;
+      
+        await sendMail(userEmail, subject, text);
+
+      }else if (newStatus === '1' && operatorId === 0){
+        const [adminResult] = await pool.query(
+          "SELECT email FROM htax_admin_login WHERE admin_type = 'Admin'"
+        );
+      
+        if (adminResult.length > 0) {
+          const adminEmail = adminResult[0].email;
+          const subject = "Status Update: Manager Review";
+          const text = `Admin,
+      
+      The user ${userName} (Registration ID: ${reg_id}) is now under Manager Review. Please review their account as soon as possible.
+      
+      Thank you,
+      HTTaxSolutions Team`;
+      
+          await sendMail(adminEmail, subject, text);
+        }
+        const subject = "Submitting your documents for tax preparation";
+        const text = `Dear ${userName},
+      
+    Thank you for Submitting your documents for tax preparation. We will get provide you a draft of your tax return within next 24-48 hours. We will contact you if any additional document/information is required for your tax preparation. 
+
+    Thank you for giving us an opportunity to serve you. 
+    HTTaxSolutions Team`;
+      
+        await sendMail(userEmail, subject, text);
       }
+
+       // Check if the new status is '4' (Payment Complete)
+    if (newStatus === '4') {
+      // Send 'Thank You' email to the user
+      const subject = "Thank You for Your Payment";
+      const text = `Dear ${userName},
+
+Thank you for your payment. We appreciate your promptness.
+
+Best regards,
+HTTaxSolutions Team`;
+
+      await sendMail(userEmail, subject, text);
+
+      // Move user's documents to the archive folder in S3
+      const currentYear = new Date().getFullYear().toString();
+      const username = `${userResult[0].first_name}_${userResult[0].last_name}`;
+      const sourcePrefix = `documents/${currentYear}/${username}_${reg_id}/`;
+      const archivePrefix = `archive/${currentYear}/${username}_${reg_id}/`;
+
+      // List all objects in the user's document folder
+      const listParams = {
+        Bucket: process.env.S3_BUCKET_NAME,
+        Prefix: sourcePrefix
+      };
+
+      const listedObjects = await s3Client.send(new ListObjectsV2Command(listParams));
+
+      if (listedObjects.Contents.length === 0) {
+        return res.status(404).json({ message: "No documents found to archive." });
+      }
+
+      // Copy each object to the archive folder
+      for (const object of listedObjects.Contents) {
+        const copyParams = {
+          Bucket: process.env.S3_BUCKET_NAME,
+          CopySource: `${process.env.S3_BUCKET_NAME}/${object.Key}`,
+          Key: object.Key.replace(sourcePrefix, archivePrefix)
+        };
+        await s3Client.send(new CopyObjectCommand(copyParams));
+      }
+
+      // Delete original objects after copying
+      for (const object of listedObjects.Contents) {
+        const deleteParams = {
+          Bucket: process.env.S3_BUCKET_NAME,
+          Key: object.Key
+        };
+        await s3Client.send(new DeleteObjectCommand(deleteParams));
+      }
+    }
 
       res.json({ message: "User status updated successfully and notifications sent!" });
   } catch (error) {
@@ -513,7 +572,7 @@ router.post("/send-emails", authenticateToken, async (req, res) => {
         html: `<p>${message}</p>`,
       };
 
-      await transporter.sendMail(mailOptions);
+      await sendMail(mailOptions.to,mailOptions.subject,mailOptions.text);
     }
 
     res.json({ message: "Emails sent successfully." });
@@ -540,14 +599,6 @@ router.post('/forgot-password', async (req, res) => {
 
     const resetLink = `${process.env.NODE_ENV==='production'?process.env.MAIL_URL_PROD:process.env.BASE_URL_DEV}/reset-password/${token}`;
 
-    // const transporter = nodemailer.createTransport({
-    //   service: 'Gmail',
-    //   auth: {
-    //     user: 'your-email@gmail.com',
-    //     pass: 'your-password',
-    //   },
-    // });
-
     const mailOptions = {
       from: "HTTaxSolutions <akhileshkhare.work@example.com>",
       to: email,
@@ -555,12 +606,8 @@ router.post('/forgot-password', async (req, res) => {
       text: `Click the link to reset your password: ${resetLink}`,
     };
 
-    transporter.sendMail(mailOptions, (error, info) => {
-      if (error) {
-        return res.status(500).json({ message: 'Error sending email' });
-      }
-      res.json({ message: 'Reset password link has been sent to your email.' });
-    });
+      await sendMail(mailOptions.to,mailOptions.subject,mailOptions.text);
+      res.json({ message: "Reset password link sent!" });
 
   } catch (error) {
     res.status(500).json({ message: 'Server error' });
