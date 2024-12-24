@@ -16,7 +16,7 @@ const transporter = nodemailer.createTransport({
 const sendMail = async (to, subject, text, html = null) => {
   try {
     const mailOptions = {
-      from: `HTTaxSolutions`,    
+      from: `HTTax Solutions <${process.env.EMAIL_USER}>`,    
       to,
       subject,
       text,

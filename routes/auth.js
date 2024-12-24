@@ -97,8 +97,12 @@ router.post("/login", async (req, res) => {
 
     console.log("Generated JWT token:", token);
 
-    // Update the last_login_time field in the database
-    await pool.query("UPDATE htax_registrations SET last_login_time = NOW() WHERE reg_id = ?", [user.reg_id]);
+    let loginTime = Math.floor(new Date().getTime() / 1000); // Convert milliseconds to seconds
+
+    await pool.query(
+      "UPDATE htax_registrations SET last_login_time = ? WHERE reg_id = ?",
+      [loginTime, user.reg_id]
+    );
 
     res.json({
       token,

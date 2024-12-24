@@ -600,7 +600,6 @@ router.post('/forgot-password', async (req, res) => {
     const resetLink = `${process.env.NODE_ENV==='production'?process.env.MAIL_URL_PROD:process.env.BASE_URL_DEV}/reset-password/${token}`;
 
     const mailOptions = {
-      from: "HTTaxSolutions <akhileshkhare.work@example.com>",
       to: email,
       subject: 'Password Reset',
       text: `Click the link to reset your password: ${resetLink}`,
