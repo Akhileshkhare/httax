@@ -10,16 +10,36 @@ router.get('/document/:reg_id', authenticateToken, async (req, res) => {
   const { reg_id } = req.params;
 
   try {
+    const [userStatus] = await pool.query(
+      'SELECT user_status FROM htax_registrations WHERE reg_id = ?',
+      [reg_id]
+    );
+
+    if (userStatus.length === 0) {
+      return res.status(404).json({ message: 'User not found.' });
+    }
+
+    if (userStatus[0].user_status === 4) {
+      // User's tax is completed
+      return res.status(200).json({
+        documents: [],status:userStatus[0].user_status,
+        message: 'Your tax filing has been successfully completed.',
+      });
+    }
+
     const [documents] = await pool.query(
       'SELECT id, title, document_name FROM htax_tax_documents WHERE reg_id = ? AND status = "active"',
       [reg_id]
     );
 
     if (documents.length === 0) {
-      return res.status(404).json({ message: 'No documents found for this user' });
+      return res.status(200).json({   documents: [],status:userStatus[0].user_status, message: 'No documents found for this user' });
     }
 
-    res.status(200).json(documents);
+    res.status(200).json({
+      documents,status:userStatus[0].user_status,
+      message: '',
+    });
   } catch (err) {
     console.error('Error fetching documents:', err);
     res.status(500).json({ message: 'Internal server error' });

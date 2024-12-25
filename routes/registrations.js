@@ -6,18 +6,10 @@ const authenticateToken = require("../auth");
 const crypto = require("crypto");
 const nodemailer = require("nodemailer");
 const { sendMail } = require("./mailService");
+const { S3Client, ListObjectsV2Command, CopyObjectCommand, DeleteObjectCommand } = require("@aws-sdk/client-s3");
+require("dotenv").config(); // Ensure you have a .env file with JWT_SECRET
 
-// const transporter = nodemailer.createTransport({
-//   service: "gmail",
-//   host: "smtp.gmail.com",
-//   port: 587,
-//   auth: {
-//     user: "akhileshkhare.work@gmail.com",
-//     pass: "qvlw zqtj zdsy tfmf",
-//   },
-// });
-
-
+const s3Client = new S3Client({ region: process.env.AWS_REGION });
 
 function generateVerificationCode() {
   return crypto.randomBytes(20).toString("hex"); // Generate a random hexadecimal string
@@ -508,42 +500,42 @@ HTTaxSolutions Team`;
 
       await sendMail(userEmail, subject, text);
 
-      // Move user's documents to the archive folder in S3
-      const currentYear = new Date().getFullYear().toString();
-      const username = `${userResult[0].first_name}_${userResult[0].last_name}`;
-      const sourcePrefix = `documents/${currentYear}/${username}_${reg_id}/`;
-      const archivePrefix = `archive/${currentYear}/${username}_${reg_id}/`;
+      // // Move user's documents to the archive folder in S3
+      // const currentYear = new Date().getFullYear().toString();
+      // const username = `${userResult[0].first_name}_${userResult[0].last_name}`;
+      // const sourcePrefix = `documents/${currentYear}/${username}_${reg_id}/`;
+      // const archivePrefix = `archive/${currentYear}/${username}_${reg_id}/`;
 
-      // List all objects in the user's document folder
-      const listParams = {
-        Bucket: process.env.S3_BUCKET_NAME,
-        Prefix: sourcePrefix
-      };
+      // // List all objects in the user's document folder
+      // const listParams = {
+      //   Bucket: process.env.S3_BUCKET_NAME,
+      //   Prefix: sourcePrefix
+      // };
 
-      const listedObjects = await s3Client.send(new ListObjectsV2Command(listParams));
+      // const listedObjects = await s3Client.send(new ListObjectsV2Command(listParams));
+      // console.log('List of Obj : ',listedObjects);
+      // if (listedObjects.Contents.length === 0) {
+      //   return res.status(404).json({ message: "No documents found to archive." });
+      // }
 
-      if (listedObjects.Contents.length === 0) {
-        return res.status(404).json({ message: "No documents found to archive." });
-      }
+      // // Copy each object to the archive folder
+      // for (const object of listedObjects.Contents) {
+      //   const copyParams = {
+      //     Bucket: process.env.S3_BUCKET_NAME,
+      //     CopySource: `${process.env.S3_BUCKET_NAME}/${object.Key}`,
+      //     Key: object.Key.replace(sourcePrefix, archivePrefix)
+      //   };
+      //   await s3Client.send(new CopyObjectCommand(copyParams));
+      // }
 
-      // Copy each object to the archive folder
-      for (const object of listedObjects.Contents) {
-        const copyParams = {
-          Bucket: process.env.S3_BUCKET_NAME,
-          CopySource: `${process.env.S3_BUCKET_NAME}/${object.Key}`,
-          Key: object.Key.replace(sourcePrefix, archivePrefix)
-        };
-        await s3Client.send(new CopyObjectCommand(copyParams));
-      }
-
-      // Delete original objects after copying
-      for (const object of listedObjects.Contents) {
-        const deleteParams = {
-          Bucket: process.env.S3_BUCKET_NAME,
-          Key: object.Key
-        };
-        await s3Client.send(new DeleteObjectCommand(deleteParams));
-      }
+      // // Delete original objects after copying
+      // for (const object of listedObjects.Contents) {
+      //   const deleteParams = {
+      //     Bucket: process.env.S3_BUCKET_NAME,
+      //     Key: object.Key
+      //   };
+      //   await s3Client.send(new DeleteObjectCommand(deleteParams));
+      // }
     }
 
       res.json({ message: "User status updated successfully and notifications sent!" });
