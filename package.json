@@ -12,6 +12,7 @@
   "description": "",
   "dependencies": {
     "@aws-sdk/client-s3": "^3.709.0",
+    "@aws-sdk/node-http-handler": "^3.370.0",
     "@aws-sdk/s3-request-presigner": "^3.709.0",
     "archiver": "^7.0.1",
     "aws-sdk": "^2.1692.0",
@@ -19,6 +20,7 @@
     "bcryptjs": "^2.4.3",
     "body-parser": "^1.20.2",
     "compression": "^1.7.5",
+    "connect-timeout": "^1.9.0",
     "cors": "^2.8.5",
     "crypto": "^1.0.1",
     "dotenv": "^16.4.5",

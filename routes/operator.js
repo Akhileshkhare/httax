@@ -10,9 +10,14 @@ const archiver = require("archiver");
 const { sendMail } = require("./mailService");
 const { title } = require("process");
 require("dotenv").config(); // Ensure you have a .env file with JWT_SECRET
-const { S3Client, GetObjectCommand,PutObjectCommand  } = require("@aws-sdk/client-s3");
+const { S3Client, GetObjectCommand,PutObjectCommand,DeleteObjectCommand,DeleteObjectsCommand   } = require("@aws-sdk/client-s3");
+const { NodeHttpHandler } = require("@aws-sdk/node-http-handler");
+
 const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
-const s3Client = new S3Client({ region: process.env.AWS_REGION });
+const s3Client = new S3Client({ region: process.env.AWS_REGION ,requestHandler: new NodeHttpHandler({
+  connectionTimeout: 600000, // 10 minutes
+  socketTimeout: 600000, // 10 minutes
+}),});
 const axios = require("axios");
 
 const router = express.Router();
@@ -68,7 +73,7 @@ console.log('email,password : ',email,password)
     const token = jwt.sign(
       { id: operator.operator_id, username: operator.username, email: operator.operator_email,user_type:2 },
       process.env.JWT_SECRET,
-      { expiresIn: "1h" }
+      { expiresIn: "12h" }
     );
 
     res.json({ token, user:{id: operator.operator_id, username: operator.username, email: operator.operator_email ,user_type:2} });
@@ -164,6 +169,7 @@ router.get("/assigned-users/:reg_id/documents", authenticateToken, async (req, r
 
     const [documents] = await pool.query(
       `SELECT 
+        id,
          title, 
          document_name, 
          file_type, 
@@ -376,28 +382,31 @@ router.get("/profile/:filename", (req, res) => {
 router.put("/:operator_id", authenticateToken, async (req, res) => {
   const { operator_id } = req.params;
   const { operator_name, operator_email, username, password, image, status } = req.body;
-
+console.log('Operator Edit : ',req.body);
   try {
     let query = `UPDATE htax_operator SET operator_name = ?, operator_email = ?, username = ?, image = ?, status = ?`;
     const queryParams = [operator_name, operator_email, username, image, status];
 
+    // If a password is provided, hash it and include it in the update query
     if (password) {
-      const hashedPassword = await bcrypt.hash(password, 10);
-      query += `, password = ?, password_show = ?`;
-      queryParams.push(hashedPassword, password);
+      const hashedPassword = await bcrypt.hash(password, 10); // Hash the password
+      query += `, password = ?, password_show = ?`; // Add password fields to the query
+      queryParams.push(hashedPassword, password);   // Add hashed and plain password to query parameters
     }
 
-    query += ` WHERE operator_id = ?`;
-    queryParams.push(operator_id);
+    query += ` WHERE operator_id = ?`; // Append the WHERE condition
+    queryParams.push(operator_id);    // Add the operator ID to the query parameters
 
+    // Execute the query
     await pool.query(query, queryParams);
 
-    res.json({ message: "Operator updated successfully." });
+    res.json({ message: "Operator updated successfully." }); // Respond with success
   } catch (err) {
-    console.error("Update Operator error:", err);
-    res.status(500).json({ message: "Internal server error." });
+    console.error("Update Operator error:", err); // Log the error for debugging
+    res.status(500).json({ message: "Internal server error." }); // Respond with an error
   }
 });
+
 
 // Delete Operator
 router.delete("/:operator_id", authenticateToken, async (req, res) => {
@@ -447,7 +456,120 @@ const tempStorage = multer.diskStorage({
 
 const uploadDoc = multer({ storage: tempStorage }); // Accept up to 10 files
 
-// POST /api/operator/upload-documents/:reg_id
+
+
+// // POST /api/operator/upload-documents/:reg_id
+// router.post(
+//   "/upload-documents/:reg_id",
+//   authenticateToken,
+//   uploadDoc.array("documents"),
+//   async (req, res) => {
+//     const { reg_id } = req.params;
+//     const files = req.files;
+
+//     // Check for uploaded files
+//     if (!files || files.length === 0) {
+//       return res.status(400).json({ message: "No files uploaded" });
+//     }
+
+//     // Normalize titles to an array if a single string is provided
+//     let titles = req.body.titles;
+//     if (!Array.isArray(titles)) {
+//       titles = [titles];
+//     }
+
+//     // Ensure titles are provided and match the number of files
+//     if (!titles || titles.length !== files.length) {
+//       return res.status(400).json({
+//         message: "Titles are required and must match the number of files uploaded",
+//       });
+//     }
+
+//     try {
+//       // Fetch username based on reg_id
+//       const [users] = await pool.query(
+//         "SELECT first_name, last_name, operator_id FROM htax_registrations WHERE reg_id = ?",
+//         [reg_id]
+//       );
+
+//       if (users.length === 0) {
+//         return res.status(404).json({ message: "User not found" });
+//       }
+
+//       const username = `${users[0].first_name}_${users[0].last_name}`;
+//       const currentYear = new Date().getFullYear().toString();
+//       const operatorId = users[0].operator_id;
+
+//       // Iterate through files and upload them to S3
+//       for (let i = 0; i < files.length; i++) {
+//         const file = files[i];
+//         const title = titles[i];
+//         const fileType = path.extname(file.originalname).substring(1).toLowerCase();
+
+//         // Ensure the file type is supported
+//         if (!["pdf", "doc", "docx", "jpg", "png", "jpeg","zip"].includes(fileType)) {
+//           throw new Error(`Unsupported file type: ${fileType}`);
+//         }
+
+//         // Define the S3 key
+//         const s3Key = `documents/${currentYear}/${username}_${reg_id}/${file.originalname}`;
+//         const bucketName = process.env.S3_BUCKET_NAME;
+
+//         // Upload file to S3
+//         const fileStream = fs.createReadStream(file.path);
+//         const uploadParams = {
+//             Bucket: bucketName,
+//             Key: s3Key,
+//             Body: fileStream,
+//             ContentType: file.mimetype,
+//         };
+
+//         try {
+//           await s3Client.send(new PutObjectCommand(uploadParams));
+//           console.log('File : ',i,file)
+//         } catch (err) {
+//           console.error(`Failed to upload ${file.originalname}:`, err);
+//           throw err; // Bubble up the error to handle it outside
+//         }
+
+//         // Insert file details into the database
+//         const insertQuery = `
+//           INSERT INTO htax_tax_documents 
+//           (reg_id, title, document_name, file_type, s3_key, s3_bucket, operator_review_status, operator_review_date, manager_review_status, manager_review_date, upload_date, status)
+//           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+//         `;
+//         const values = [
+//           reg_id,
+//           title,
+//           file.originalname,
+//           fileType,
+//           s3Key,
+//           bucketName,
+//           0, // operator_review_status
+//           null, // operator_review_date
+//           0, // manager_review_status
+//           null, // manager_review_date
+//           new Date(), // upload_date
+//           0, // status
+//         ];
+
+//         await pool.query(insertQuery, values);
+
+//         // Clean up the temporary file
+//         fs.unlinkSync(file.path);
+//       }
+
+//       res.status(200).json({
+//         message: "Files uploaded to S3, data saved, and notification sent successfully",
+//       });
+//     } catch (err) {
+//       console.error("Error uploading files to S3:", err);
+//       res.status(500).json({ message: "Internal server error" });
+//     }
+//   }
+// );
+
+
 router.post(
   "/upload-documents/:reg_id",
   authenticateToken,
@@ -475,7 +597,7 @@ router.post(
     }
 
     try {
-      // Fetch username based on reg_id
+      // Fetch username and operator_id based on reg_id
       const [users] = await pool.query(
         "SELECT first_name, last_name, operator_id FROM htax_registrations WHERE reg_id = ?",
         [reg_id]
@@ -496,7 +618,19 @@ router.post(
         const fileType = path.extname(file.originalname).substring(1).toLowerCase();
 
         // Ensure the file type is supported
-        if (!["pdf", "doc", "docx", "jpg", "png", "jpeg","zip"].includes(fileType)) {
+        if ( ![
+          "pdf", 
+          "doc", 
+          "docx", 
+          "xls", 
+          "xlsx", 
+          "csv", 
+          "txt", 
+          "jpg", 
+          "png", 
+          "jpeg", 
+          "zip"
+        ].includes(fileType)) {
           throw new Error(`Unsupported file type: ${fileType}`);
         }
 
@@ -504,20 +638,32 @@ router.post(
         const s3Key = `documents/${currentYear}/${username}_${reg_id}/${file.originalname}`;
         const bucketName = process.env.S3_BUCKET_NAME;
 
-        // Upload file to S3
-        const fileContent = fs.readFileSync(file.path);
+        // Check if the file exists before proceeding
+        if (!fs.existsSync(file.path)) {
+          console.error(`Temporary file not found: ${file.path}`);
+          throw new Error(`${file.originalname} file missing. Please try again.`);
+        }
+
+        // Upload file to S3 using a stream
+        const fileStream = fs.createReadStream(file.path);
         const uploadParams = {
           Bucket: bucketName,
           Key: s3Key,
-          Body: fileContent,
+          Body: fileStream,
           ContentType: file.mimetype,
         };
 
         try {
           await s3Client.send(new PutObjectCommand(uploadParams));
-        } catch (err) {
-          console.error(`Failed to upload ${file.originalname}:`, err);
-          throw err; // Bubble up the error to handle it outside
+          console.log(`Successfully uploaded file: ${file.originalname}`);
+        } catch (uploadErr) {
+          console.error(`Failed to upload ${file.originalname}:`, uploadErr);
+          throw uploadErr;
+        } finally {
+          // Clean up the temporary file
+          // if (fs.existsSync(file.path)) {
+          //   fs.unlinkSync(file.path);
+          // }
         }
 
         // Insert file details into the database
@@ -542,44 +688,127 @@ router.post(
         ];
 
         await pool.query(insertQuery, values);
-
-        // Clean up the temporary file
-        fs.unlinkSync(file.path);
       }
-
-      // Determine the recipient email (operator or admin)
-      // let recipientEmail;
-      // if (operatorId > 0) {
-      //   // Get operator's email
-      //   const [operator] = await pool.query(
-      //     "SELECT operator_email FROM htax_operator WHERE operator_id = ?",
-      //     [operatorId]
-      //   );
-      //   if (operator.length > 0) {
-      //     recipientEmail = operator[0].operator_email;
-      //   }
-      // } else {
-      //   // Get admin's email (assuming first active admin as the default recipient)
-      //   const [admin] = await pool.query(
-      //     'SELECT email FROM htax_admin_login WHERE status = "active" LIMIT 1'
-      //   );
-      //   if (admin.length > 0) {
-      //     recipientEmail = admin[0].email;
-      //   }
-      // }
-
-      // // Send a notification email if the recipient email exists
-      // if (recipientEmail) {
-      //   await sendDocumentNotification(recipientEmail, username, titles, files);
-      // }
-
+      // Clean up any remaining temporary files
+      if (files && files.length > 0) {
+        files.forEach((file) => {
+          if (fs.existsSync(file.path)) {
+            fs.unlinkSync(file.path);
+          }
+        });
+      }
       res.status(200).json({
         message: "Files uploaded to S3, data saved, and notification sent successfully",
       });
     } catch (err) {
       console.error("Error uploading files to S3:", err);
-      res.status(500).json({ message: "Internal server error" });
+
+      // Clean up any remaining temporary files
+      if (files && files.length > 0) {
+        files.forEach((file) => {
+          if (fs.existsSync(file.path)) {
+            fs.unlinkSync(file.path);
+          }
+        });
+      }
+
+      res.status(500).json({ message: "Internal server error", error: err.message });
     }
   }
 );
+
+router.delete("/upload-documents/:id", authenticateToken, async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    // Step 1: Fetch document details from the database
+    const [documents] = await pool.query(
+      "SELECT s3_key, s3_bucket FROM htax_tax_documents WHERE id = ?",
+      [id]
+    );
+
+    if (documents.length === 0) {
+      return res.status(404).json({ message: "Tax document not found." });
+    }
+
+    const { s3_key, s3_bucket } = documents[0];
+
+    // Step 2: Delete the document from S3
+    const deleteParams = {
+      Bucket: s3_bucket,
+      Key: s3_key,
+    };
+
+    try {
+      await s3Client.send(new DeleteObjectCommand(deleteParams));
+    } catch (s3Error) {
+      console.error("Error deleting document from S3:", s3Error);
+      return res.status(500).json({ message: "Failed to delete document from S3." });
+    }
+
+    // Step 3: Remove the record from the database
+    const [result] = await pool.query("DELETE FROM htax_tax_documents WHERE id = ?", [id]);
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ message: "Tax document not found in the database." });
+    }
+
+    res.json({ message: "Tax document deleted successfully." });
+  } catch (err) {
+    console.error("Error deleting tax document:", err);
+    res.status(500).json({ message: "Internal server error." });
+  }
+});
+router.delete(
+  "/upload-documents/user/:reg_id",
+  authenticateToken,
+  async (req, res) => {
+    const { reg_id } = req.params;
+
+    try {
+      // Step 1: Fetch all document details for the user from the database
+      const [documents] = await pool.query(
+        "SELECT s3_key, s3_bucket FROM htax_tax_documents WHERE reg_id = ?",
+        [reg_id]
+      );
+
+      if (documents.length === 0) {
+        return res.status(404).json({ message: "No documents found for this user." });
+      }
+
+      // Step 2: Delete all documents from S3
+      const deleteObjectsParams = {
+        Bucket: documents[0].s3_bucket, // Assuming all documents are in the same bucket
+        Delete: {
+          Objects: documents.map((doc) => ({ Key: doc.s3_key })),
+        },
+      };
+
+      try {
+        await s3Client.send(new DeleteObjectsCommand(deleteObjectsParams));
+      } catch (s3Error) {
+        console.error("Error deleting documents from S3:", s3Error);
+        return res
+          .status(500)
+          .json({ message: "Failed to delete some or all documents from S3." });
+      }
+
+      // Step 3: Remove all records for the user from the database
+      const [result] = await pool.query(
+        "DELETE FROM htax_tax_documents WHERE reg_id = ?",
+        [reg_id]
+      );
+
+      if (result.affectedRows === 0) {
+        return res.status(404).json({ message: "No documents found in the database." });
+      }
+
+      res.json({ message: "All documents deleted successfully for the user." });
+    } catch (err) {
+      console.error("Error deleting documents for user:", err);
+      res.status(500).json({ message: "Internal server error." });
+    }
+  }
+);
+
 module.exports = router;

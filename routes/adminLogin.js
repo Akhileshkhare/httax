@@ -56,12 +56,12 @@ router.post("/login", async (req, res) => {
     }
 
     const token = jwt.sign(
-      { id: admin.id, username: admin.username, email: admin.email,user_type: 3 },
+      { id: admin.id, username: admin.name, email: admin.email,user_type: 3 },
       process.env.JWT_SECRET,
-      { expiresIn: "1h" }
+      { expiresIn: "8h" }
     );
 
-    res.json({ token,user: { id: admin.id, username: admin.username, email: admin.email ,user_type:3} });
+    res.json({ token,user: { id: admin.id, username: admin.name, email: admin.email ,user_type:3} });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: "Internal server error." });
@@ -371,7 +371,6 @@ router.get('/email_templates/:id', authenticateToken, async (req, res) => {
 router.put(
   '/email_templates/:id',
   authenticateToken,
-  upload.single('image'), // Handle image upload if updating the image
   async (req, res) => {
     const templateId = parseInt(req.params.id, 10);
 
@@ -380,17 +379,22 @@ router.put(
     }
 
     const { purpose, subject, message, message1, status } = req.body;
-   
+
 
     try {
-      let query = `UPDATE htax_email_templates SET purpose = ?, subject = ?, message = ?, message1 = ?, status = ?`;
-      const queryParams= [purpose, subject, message, message1, status];
+ // Construct the SQL query
+let query = `
+UPDATE htax_email_templates
+SET purpose = ?, subject = ?, message = ?, message1 = ?, status = ?
+WHERE id = ? AND status = 1
+`;
 
-      query += ` WHERE id = ? AND status = 1`;
-      queryParams.push(templateId);
+// Define the parameters for the query
+const queryParams = [purpose, subject, message, message1, status, templateId];
+
 
       const [result] = await pool.query(query, queryParams);
-
+console.log('Email template : ',req.body,queryParams);
       if ((result ).affectedRows === 0) {
         return res.status(404).json({ message: 'Email template not found or already deleted.' });
       }
@@ -398,7 +402,7 @@ router.put(
       res.json({ message: 'Email template updated successfully.' });
     } catch (err) {
       console.error('Error updating email template:', err);
-      res.status(500).json({ message: 'Internal server error.' });
+      res.status(500).json({ message: 'Internal server error.'+err });
     }
   }
 );

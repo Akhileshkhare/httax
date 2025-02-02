@@ -168,7 +168,7 @@ router.post("/", async (req, res) => {
     const mailOptions = {    
       to: email,
       subject: "Please verify your HTTaxSolutions account",
-      text: `Hi ${first_name} ${last_name},\n\nPlease click the link below to verify your email address and activate your account. This link will remain active for 24 hrs.\n\n${process.env.NODE_ENV==='production'?process.env.MAIL_URL_PROD:process.env.BASE_URL_DEV}/verify/${verificationCode}\n\nBest Regards,\n\nHTTaxSolutions`,
+      text: `Hi ${first_name} ${last_name},\n\nPlease click the link below to verify your email address and activate your account. This link will remain active for 24 hrs.\n\n${process.env.NODE_ENV==='production'?process.env.MAIL_URL_PROD:process.env.BASE_URL_DEV}verify/${verificationCode}\n\nBest Regards,\n\nHTTaxSolutions`,
     };
     
 
@@ -320,6 +320,9 @@ router.put("/:reg_id/operator/:operator_id", authenticateToken, async (req, res)
       "UPDATE htax_registrations SET operator_id = ? WHERE reg_id = ?",
       [operator_id, reg_id]
     );
+    if(parseInt(operator_id)===0){
+      res.json({ message: "Operator unassigned successfully!" });
+    }else{
  // Fetch operator details from the htax_operator table
  const [operatorResult] = await pool.query(
   "SELECT operator_email, operator_name FROM htax_operator WHERE operator_id = ?",
@@ -357,6 +360,7 @@ HTTax Solutions`;
 await sendMail(operatorEmail, subject, text);
 
 res.json({ message: "Operator updated and notification sent successfully!" });
+}
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: "Internal server error." });
@@ -547,19 +551,19 @@ HTTaxSolutions Team`;
 
 // Send bulk emails to filtered users
 router.post("/send-emails", authenticateToken, async (req, res) => {
-  const { emails, message } = req.body;
+  const { emails, message,title } = req.body;
 
-  if (!emails || emails.length === 0 || !message) {
-    return res.status(400).json({ error: "Emails and message are required." });
+  if (!emails || emails.length === 0 || !message || !title) {
+    return res.status(400).json({ error: "Emails, title and message are required." });
   }
 
   try {
     // Iterate through the emails array and send the email
     for (const email of emails) {
       const mailOptions = {
-        from: "HTTaxSolutions <akhileshkhare.work@gmail.com>",
+        from: "HTTaxSolutions",
         to: email,
-        subject: "Important Update from HTTaxSolutions",
+        subject: title,
         text: message,
         html: `<p>${message}</p>`,
       };
@@ -589,7 +593,7 @@ router.post('/forgot-password', async (req, res) => {
     // Save token to user record (for example in a password_reset_token column)
     await pool.query('UPDATE htax_registrations SET temp_forget	 = ? WHERE email = ?', [token, email]);
 
-    const resetLink = `${process.env.NODE_ENV==='production'?process.env.MAIL_URL_PROD:process.env.BASE_URL_DEV}/reset-password/${token}`;
+    const resetLink = `${process.env.NODE_ENV==='production'?process.env.MAIL_URL_PROD:process.env.BASE_URL_DEV}reset-password/${token}`;
 
     const mailOptions = {
       to: email,

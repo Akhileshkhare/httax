@@ -33,17 +33,17 @@ const storage = multer.diskStorage({
 const upload = multer({ storage });
 
 
-// -------------------------------------------------------------
-router.post('/', authenticateToken, async (req, res) => {
+  // -------------------------------------------------------------
+  router.post('/', authenticateToken, async (req, res) => {
     try {
       const profile = req.body;
       const regId=profile.personalInfo.regID;
       console.log('profile Data : ',regId,profile)
       // Insert into htax_profiles
       const [profileResult] = await db.query(
-        `INSERT INTO htax_profiles (reg_id, first_name, middle_name, last_name, street_address, apartment_number, city, state, zip, ssn_or_itin, apply_for_itin, date_of_birth, filing_status, spouse_first_name, spouse_middle_name, spouse_last_name, spouse_dob, spouse_ssn_or_itin, spouse_apply_for_itin)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [regId,profile.personalInfo.firstName, profile.personalInfo.middleName, profile.personalInfo.lastName, profile.personalInfo.address.streetAddress, profile.personalInfo.address.apartmentNumber, profile.personalInfo.address.city, profile.personalInfo.address.state, profile.personalInfo.address.zip, profile.personalInfo.ssnOrItin, profile.personalInfo.applyForITIN, profile.personalInfo.dateOfBirth, profile.personalInfo.filingStatus, profile.personalInfo.spouseInfo.firstName, profile.personalInfo.spouseInfo.middleName, profile.personalInfo.spouseInfo.lastName, profile.personalInfo.spouseInfo.dateOfBirth, profile.personalInfo.spouseInfo.ssnOrItin, profile.personalInfo.spouseInfo.applyForITIN]
+        `INSERT INTO htax_profiles (reg_id, first_name, middle_name, last_name, street_address, apartment_number, city, state, zip, ssn_or_itin, apply_for_itin, date_of_birth, filing_status, spouse_first_name, spouse_middle_name, spouse_last_name, spouse_dob, spouse_ssn_or_itin, spouse_apply_for_itin,us_visa_type,us_arrival,spouse_us_visa_type,spouse_us_arrival,remark)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [regId,profile.personalInfo.firstName, profile.personalInfo.middleName, profile.personalInfo.lastName, profile.personalInfo.address.streetAddress, profile.personalInfo.address.apartmentNumber, profile.personalInfo.address.city, profile.personalInfo.address.state, profile.personalInfo.address.zip, profile.personalInfo.ssnOrItin, profile.personalInfo.applyForITIN, profile.personalInfo.dateOfBirth, profile.personalInfo.filingStatus, profile.personalInfo.spouseInfo.firstName, profile.personalInfo.spouseInfo.middleName, profile.personalInfo.spouseInfo.lastName, profile.personalInfo.spouseInfo.dateOfBirth, profile.personalInfo.spouseInfo.ssnOrItin, profile.personalInfo.spouseInfo.applyForITIN,profile.personalInfo.usVisaType,profile.personalInfo.usArrival,profile.personalInfo.spouseInfo.usVisaType,profile.personalInfo.spouseInfo.usArrival,profile.personalInfo.remark]
       );
       
       const taxProfileId = profileResult.insertId;
@@ -60,9 +60,9 @@ router.post('/', authenticateToken, async (req, res) => {
       // Insert residency info
       for (const residency of profile.residencyInfo) {
         await db.query(
-          `INSERT INTO residency_info (tax_profile_id, state, residency_begin_date, residency_end_date)
-           VALUES (?, ?, ?, ?)`,
-          [taxProfileId, residency.state, residency.residencyBeginDate, residency.residencyEndDate]
+          `INSERT INTO residency_info (tax_profile_id, state, residency_begin_date, residency_end_date,residency_info_for)
+           VALUES (?, ?, ?, ?, ?)`,
+          [taxProfileId, residency.state, residency.residencyBeginDate, residency.residencyEndDate, residency.residencyInfoFor]
         );
       }
   
@@ -87,7 +87,7 @@ router.post('/', authenticateToken, async (req, res) => {
   
   router.put('/:id', authenticateToken, async (req, res) => {
     console.log('Content-Type:', req.headers['content-type']);
-    console.log('Request Body:', req.body);
+    console.log('Request Body for Update Profile :', req.body);
     const profileId = req.params.id;
     const profile = req.body;
   console.log('Profile Data Value : ',profile);
@@ -114,7 +114,12 @@ router.post('/', authenticateToken, async (req, res) => {
         spouse_last_name = ?, 
         spouse_dob = ?, 
         spouse_ssn_or_itin = ?, 
-        spouse_apply_for_itin = ?
+        spouse_apply_for_itin = ?,
+        us_visa_type = ?,
+        us_arrival = ?,
+        spouse_us_visa_type = ?,
+        spouse_us_arrival = ?,
+        remark= ?
       WHERE id = ?;
     `;
 
@@ -137,6 +142,11 @@ router.post('/', authenticateToken, async (req, res) => {
       personalInfo.spouseInfo?.dateOfBirth || null,
       personalInfo.spouseInfo?.ssnOrItin || null,
       personalInfo.spouseInfo?.applyForITIN || null,
+      personalInfo.usVisaType || null,
+      personalInfo.usArrival || null,
+      personalInfo.spouseInfo?.usVisaType || null,
+      personalInfo.spouseInfo?.usArrival || null,
+      personalInfo.remark || null,
       profileId,
     ]);
   
@@ -165,8 +175,8 @@ router.post('/', authenticateToken, async (req, res) => {
       await db.query('DELETE FROM residency_info WHERE tax_profile_id = ?', [profileId]);
   
       const insertResidencyQuery = `
-        INSERT INTO residency_info (tax_profile_id, state, residency_begin_date, residency_end_date)
-        VALUES (?, ?, ?, ?);
+        INSERT INTO residency_info (tax_profile_id, state, residency_begin_date, residency_end_date,residency_info_for)
+        VALUES (?, ?, ?, ?,?);
       `;
   
       for (let residency of residencyInfo) {
@@ -175,6 +185,7 @@ router.post('/', authenticateToken, async (req, res) => {
           residency.state,
           residency.residencyBeginDate,
           residency.residencyEndDate,
+          residency.residencyInfoFor
         ]);
       }
   
@@ -204,19 +215,70 @@ router.post('/', authenticateToken, async (req, res) => {
       const profileId=req.params.id     
   
       const [profile] = await db.query(
-        `SELECT * FROM htax_profiles WHERE id = ?`,
+        `SELECT 
+            id, 
+            reg_id, 
+            first_name, 
+            middle_name, 
+            last_name, 
+            street_address, 
+            apartment_number, 
+            city, 
+            state, 
+            zip, 
+            ssn_or_itin, 
+            apply_for_itin, 
+            date_of_birth,
+            filing_status, 
+            spouse_first_name, 
+            spouse_middle_name, 
+            spouse_last_name, 
+            spouse_dob,
+            spouse_ssn_or_itin, 
+            spouse_apply_for_itin, 
+            created_at,
+            updated_at,
+            profile_update_otp, 
+            otp_expiry, 
+            us_visa_type, 
+            spouse_us_visa_type, 
+            us_arrival,
+            spouse_us_arrival,
+            remark
+         FROM htax_profiles 
+         WHERE id = ?`,
         [profileId]
       );
-      // const profileId = profile.id;
+      
       const [dependents] = await db.query(
-        `SELECT * FROM dependents WHERE tax_profile_id = ?`,
+        `SELECT 
+            id, 
+            tax_profile_id, 
+            first_name, 
+            middle_name, 
+            last_name, 
+           date_of_birth,
+            ssn_or_itin, 
+            relationship, 
+            apply_for_itin 
+         FROM dependents 
+         WHERE tax_profile_id = ?`,
         [profileId]
       );
-  
+      
       const [residencyInfo] = await db.query(
-        `SELECT * FROM residency_info WHERE tax_profile_id = ?`,
+        `SELECT 
+            id, 
+            tax_profile_id, 
+            state, 
+            residency_begin_date,
+            residency_end_date,
+            residency_info_for 
+         FROM residency_info 
+         WHERE tax_profile_id = ?`,
         [profileId]
       );
+      
   
       const [bankDetails] = await db.query(
         `SELECT * FROM bank_details WHERE tax_profile_id = ?`,
@@ -291,118 +353,118 @@ router.post('/', authenticateToken, async (req, res) => {
 
         res.status(200).json({ message: 'Dependent deleted successfully', id: dependentId });
     });
-});
-router.delete("/residency-info/:id", async (req, res) => {
-  const { id } = req.params;
+  });
+  router.delete("/residency-info/:id", async (req, res) => {
+    const { id } = req.params;
 
-  if (!id) {
-    return res.status(400).json({ error: "Residency info ID is required." });
-  }
+    if (!id) {
+      return res.status(400).json({ error: "Residency info ID is required." });
+    }
 
-  try {
-    // Delete the residency entry
-    const deleteQuery = "DELETE FROM residency_info WHERE id = ?";
-    await db.execute(deleteQuery, [id]);
+    try {
+      // Delete the residency entry
+      const deleteQuery = "DELETE FROM residency_info WHERE id = ?";
+      await db.execute(deleteQuery, [id]);
 
-    return res.status(200).json({ message: "Residency info deleted successfully." });
-  } catch (error) {
-    console.error("Error deleting residency info:", error);
-    return res.status(500).json({ error: "Internal Server Error." });
-  }
-});
+      return res.status(200).json({ message: "Residency info deleted successfully." });
+    } catch (error) {
+      console.error("Error deleting residency info:", error);
+      return res.status(500).json({ error: "Internal Server Error." });
+    }
+  });
   // POST /generate-otp
-router.post('/generate-otp', authenticateToken, async (req, res) => {
-  try {
-    const { reg_id } = req.body;
-console.log('Reg ID',reg_id)
-    // Generate a 6-digit OTP
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+  router.post('/generate-otp', authenticateToken, async (req, res) => {
+    try {
+      const { reg_id } = req.body;
+  console.log('Reg ID',reg_id)
+      // Generate a 6-digit OTP
+      const otp = Math.floor(100000 + Math.random() * 900000).toString();
 
-    // Set expiry time (5 minutes from now)
-    const expiryTime = Date.now() + 5 * 60 * 1000;
+      // Set expiry time (5 minutes from now)
+      const expiryTime = Date.now() + 5 * 60 * 1000;
 
-    // Update the OTP and expiry in the database
-    await db.query(
-      'UPDATE htax_profiles SET profile_update_otp = ?, otp_expiry = ? WHERE id = ?',
-      [otp, expiryTime, reg_id]
-    );
+      // Update the OTP and expiry in the database
+      await db.query(
+        'UPDATE htax_profiles SET profile_update_otp = ?, otp_expiry = ? WHERE id = ?',
+        [otp, expiryTime, reg_id]
+      );
 
-    // Retrieve the user's regId using id
-    const [userReg] = await db.query('SELECT reg_id FROM htax_profiles WHERE id = ?', [reg_id]);
-    if (!userReg.length) {
-      return res.status(404).send('User not found.');
+      // Retrieve the user's regId using id
+      const [userReg] = await db.query('SELECT reg_id FROM htax_profiles WHERE id = ?', [reg_id]);
+      if (!userReg.length) {
+        return res.status(404).send('User not found.');
+      }
+
+      const regId = userReg[0].reg_id;
+      // Retrieve the user's email using reg_id
+      const [user] = await db.query('SELECT email,first_name, last_name  FROM htax_registrations WHERE reg_id = ?', [regId]);
+      if (!user.length) {
+        return res.status(404).send('User not found.');
+      }
+
+      const email = user[0].email;
+      const userName = `${user[0].first_name} ${user[0].last_name}`;
+
+      // Send the OTP to the user's email
+      const text = `Hello ${userName},
+
+      Your OTP is ${otp}. It is valid for 5 minutes.
+      
+      Best regards,
+      HTTax Solutions`;
+
+      await sendMail(email,'Your OTP for Profile Update',text);
+
+      res.status(200).send('OTP sent successfully.');
+    } catch (error) {
+      console.error('Error generating OTP:', error);
+      res.status(500).send('Error generating or sending OTP.');
     }
+  });
+  // POST /verify-otp
+  router.post('/verify-otp', authenticateToken, async (req, res) => {
+    try {
+      const { reg_id, otp } = req.body;
 
-    const regId = userReg[0].reg_id;
-    // Retrieve the user's email using reg_id
-    const [user] = await db.query('SELECT email,first_name, last_name  FROM htax_registrations WHERE reg_id = ?', [regId]);
-    if (!user.length) {
-      return res.status(404).send('User not found.');
+      // Validate inputs
+      if (!reg_id || !/^\d{6}$/.test(otp)) {
+        return res.status(400).send('Invalid OTP.');
+      }
+
+      // Retrieve OTP and expiry details
+      const [rows] = await db.query(
+        'SELECT profile_update_otp, otp_expiry FROM htax_profiles WHERE id = ?',
+        [reg_id]
+      );
+
+      if (rows.length === 0) {
+        return res.status(404).send('User not found.');
+      }
+
+      const { profile_update_otp, otp_expiry } = rows[0];
+
+      // Validate OTP
+      if (parseInt(profile_update_otp, 10) !== parseInt(otp, 10)) {
+        return res.status(400).send('Invalid OTP.');
+      }
+
+      // Check OTP expiry
+      if (Date.now() > new Date(otp_expiry).getTime()) {
+        return res.status(400).send('OTP has expired.');
+      }
+
+      // OTP is valid; clear it from the database
+      await db.query(
+        'UPDATE htax_profiles SET profile_update_otp = NULL, otp_expiry = NULL WHERE id = ?',
+        [reg_id]
+      );
+
+      res.status(200).send('OTP verified successfully.');
+    } catch (error) {
+      console.error('Error verifying OTP:', error);
+      res.status(500).send('Error verifying OTP.');
     }
-
-    const email = user[0].email;
-    const userName = `${user[0].first_name} ${user[0].last_name}`;
-
-    // Send the OTP to the user's email
-    const text = `Hello ${userName},
-
-    Your OTP is ${otp}. It is valid for 5 minutes.
-    
-    Best regards,
-    HTTax Solutions`;
-
-    await sendMail(email,'Your OTP for Profile Update',text);
-
-    res.status(200).send('OTP sent successfully.');
-  } catch (error) {
-    console.error('Error generating OTP:', error);
-    res.status(500).send('Error generating or sending OTP.');
-  }
-});
-// POST /verify-otp
-router.post('/verify-otp', authenticateToken, async (req, res) => {
-  try {
-    const { reg_id, otp } = req.body;
-
-    // Validate inputs
-    if (!reg_id || !/^\d{6}$/.test(otp)) {
-      return res.status(400).send('Invalid OTP.');
-    }
-
-    // Retrieve OTP and expiry details
-    const [rows] = await db.query(
-      'SELECT profile_update_otp, otp_expiry FROM htax_profiles WHERE id = ?',
-      [reg_id]
-    );
-
-    if (rows.length === 0) {
-      return res.status(404).send('User not found.');
-    }
-
-    const { profile_update_otp, otp_expiry } = rows[0];
-
-    // Validate OTP
-    if (parseInt(profile_update_otp, 10) !== parseInt(otp, 10)) {
-      return res.status(400).send('Invalid OTP.');
-    }
-
-    // Check OTP expiry
-    if (Date.now() > new Date(otp_expiry).getTime()) {
-      return res.status(400).send('OTP has expired.');
-    }
-
-    // OTP is valid; clear it from the database
-    await db.query(
-      'UPDATE htax_profiles SET profile_update_otp = NULL, otp_expiry = NULL WHERE id = ?',
-      [reg_id]
-    );
-
-    res.status(200).send('OTP verified successfully.');
-  } catch (error) {
-    console.error('Error verifying OTP:', error);
-    res.status(500).send('Error verifying OTP.');
-  }
-});
+  });
 
 
 module.exports = router;
